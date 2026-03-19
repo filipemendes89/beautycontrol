@@ -14,21 +14,14 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='90' fill='%23a855f7'/><text y='.82em' font-size='340' x='86'>&#x1F485;</text></svg>" />
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='90' fill='%23a855f7'/><text y='.82em' font-size='340' x='86'>&#x1F485;</text></svg>" />
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
-
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%;
-      overflow: hidden; background: #07071a;
-      -webkit-tap-highlight-color: transparent;
-      -webkit-touch-callout: none;
-      overscroll-behavior: none;
-      touch-action: pan-y;
-    }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      background: #07071a; -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none; overscroll-behavior: none; touch-action: pan-y; }
     #root { width: 100%; height: 100%; height: 100dvh; }
     #root video { max-width: 100% !important; object-fit: cover !important; }
     #qr-shaded-region { border-width: 0 !important; }
@@ -39,40 +32,32 @@
     select option { background: #1a1a2e; }
     input[type=number]::-webkit-inner-spin-button { opacity: 0.5; }
     input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
-    #splash {
-      position: fixed; inset: 0; z-index: 9999; background: #07071a;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      transition: opacity 0.45s ease;
-    }
-    #splash.fade { opacity: 0; pointer-events: none; }
-    #splash em   { font-size: 80px; font-style: normal; }
-    #splash h1   { margin: 16px 0 0; font-family: sans-serif; font-size: 26px; font-weight: 800;
-                   background: linear-gradient(90deg,#c084fc,#818cf8);
-                   -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    #splash p    { margin: 8px 0 0; font-family: sans-serif; font-size: 12px; color: #4b5563;
-                   letter-spacing: 2px; text-transform: uppercase; }
-    #splash-bar  { margin-top: 28px; width: 120px; height: 3px; background: #1e1e38; border-radius: 99px; overflow: hidden; }
-    #splash-fill { height: 100%; width: 0; background: linear-gradient(90deg,#a855f7,#818cf8);
-                   border-radius: 99px; animation: loadBar 1.4s ease forwards; }
+    #splash { position:fixed; inset:0; z-index:9999; background:#07071a;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      transition:opacity .45s ease; }
+    #splash.fade { opacity:0; pointer-events:none; }
+    #splash em  { font-size:80px; font-style:normal; }
+    #splash h1  { margin:16px 0 0; font-family:sans-serif; font-size:26px; font-weight:800;
+      background:linear-gradient(90deg,#c084fc,#818cf8);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    #splash p   { margin:8px 0 0; font-family:sans-serif; font-size:12px; color:#4b5563;
+      letter-spacing:2px; text-transform:uppercase; }
+    #splash-bar { margin-top:28px; width:120px; height:3px; background:#1e1e38; border-radius:99px; overflow:hidden; }
+    #splash-fill{ height:100%; width:0; background:linear-gradient(90deg,#a855f7,#818cf8);
+      border-radius:99px; animation:loadBar 1.4s ease forwards; }
     @keyframes loadBar { from{width:0} to{width:100%} }
     @keyframes scanline {
       0%,100%{transform:translateY(-12px);opacity:.3}
-      50%{transform:translateY(12px);opacity:1}
-    }
+      50%{transform:translateY(12px);opacity:1} }
   </style>
 </head>
 <body>
-<div id="splash">
-  <em>&#x1F485;</em>
-  <h1>BeautyControl</h1>
-  <p>Carregando&hellip;</p>
-  <div id="splash-bar"><div id="splash-fill"></div></div>
-</div>
+<div id="splash"><em>&#x1F485;</em><h1>BeautyControl</h1><p>Carregando&hellip;</p>
+  <div id="splash-bar"><div id="splash-fill"></div></div></div>
 <div id="root"></div>
 
 <script type="text/babel">
 /* global React, ReactDOM */
-// ONE single destructure — JSX body must NOT repeat this
 const { useState, useCallback, useEffect, useRef } = React;
 
 
@@ -110,14 +95,22 @@ function useDB() {
   const [db, setDB] = useState(() => {
     try { const r = localStorage.getItem(DB_KEY); return r ? JSON.parse(r) : defaultDB; } catch { return defaultDB; }
   });
+  // External sync listener — Drive hook registers here so every commit triggers a push
+  const syncListenerRef = useRef(null);
+
   const commit = useCallback((updater) => {
     setDB(prev => {
       const next = updater(JSON.parse(JSON.stringify(prev)));
       try { localStorage.setItem(DB_KEY, JSON.stringify(next)); } catch {}
+      // Fire sync listener after state settles (debounced in the listener itself)
+      if (syncListenerRef.current) {
+        try { syncListenerRef.current(next); } catch (_) {}
+      }
       return next;
     });
   }, []);
-  return { db, commit };
+
+  return { db, commit, syncListenerRef };
 }
 
 // ─── Responsive hook ──────────────────────────────────────────────────────────
@@ -133,54 +126,66 @@ function useIsMobile() {
 
 
 // ─── BARCODE SCANNER ─────────────────────────────────────────────────────────
-// Uses html5-qrcode (most reliable on Android Chrome)
 function BarcodeScannerModal({ onDetected, onClose, title = "Escanear Código" }) {
-  const [status, setStatus] = useState("loading"); // loading | active | error
+  const [status, setStatus] = useState("loading"); // loading | active | error | detected
   const [errMsg, setErrMsg] = useState("");
-  const scannerRef = useRef(null);
+  const scannerRef  = useRef(null);
+  const doneRef     = useRef(false); // prevents double-fire
   const containerId = useRef("bc-" + Math.random().toString(36).slice(2)).current;
 
-  useEffect(() => {
-    let scanner = null;
+  // Safely stop the scanner — always awaited before any state change
+  const stopScanner = useCallback(async () => {
+    const sc = scannerRef.current;
+    if (!sc) return;
+    scannerRef.current = null;
+    try { await sc.stop(); } catch (_) {}
+    try { sc.clear(); }      catch (_) {}
+  }, []);
 
+  useEffect(() => {
     const start = async () => {
-      // Load html5-qrcode from CDN if not present
+      // Lazy-load html5-qrcode from CDN once
       if (!window.Html5Qrcode) {
         await new Promise((resolve, reject) => {
           const s = document.createElement("script");
           s.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
           s.onload = resolve;
-          s.onerror = () => reject(new Error("Falha ao carregar biblioteca de scanner"));
+          s.onerror = () => reject(new Error("Falha ao carregar leitor de câmera"));
           document.head.appendChild(s);
         });
       }
 
+      if (doneRef.current) return; // already closed before load finished
+
       try {
-        scanner = new window.Html5Qrcode(containerId);
+        const scanner = new window.Html5Qrcode(containerId);
         scannerRef.current = scanner;
 
         await scanner.start(
-          { facingMode: "environment" }, // back camera
-          {
-            fps: 15,
-            qrbox: { width: 260, height: 120 },
-            aspectRatio: 1.7,
-            disableFlip: false,
+          { facingMode: "environment" },
+          { fps: 12, qrbox: { width: 260, height: 120 }, aspectRatio: 1.7 },
+
+          // ── SUCCESS callback ──────────────────────────────────────────────
+          async (decodedText) => {
+            if (doneRef.current) return; // guard against firing twice
+            doneRef.current = true;
+
+            try { navigator.vibrate?.(80); } catch (_) {}
+            setStatus("detected"); // show "lido!" state while we stop
+
+            await stopScanner();   // WAIT for full stop before unmounting
+            onDetected(decodedText); // only NOW hand control back to parent
           },
-          (decodedText) => {
-            // success
-            try { navigator.vibrate?.(60); } catch {}
-            scanner.stop().catch(() => {});
-            onDetected(decodedText);
-          },
-          () => {} // ignore per-frame errors
+
+          () => {} // per-frame decode errors — ignore silently
         );
         setStatus("active");
       } catch (e) {
-        const msg = e?.message || String(e);
-        if (msg.includes("Permission") || msg.includes("NotAllowed")) {
-          setErrMsg("Permissão de câmera negada. Vá em Configurações > Permissões > Câmera e permita o acesso.");
-        } else if (msg.includes("NotFound") || msg.includes("Devices")) {
+        const msg = String(e?.message || e);
+        if (/Permission|NotAllowed/i.test(msg)) {
+          setErrMsg("Permissão de câmera negada.
+Vá em Configurações → Apps → Chrome → Permissões → Câmera → Permitir.");
+        } else if (/NotFound|Devices|not found/i.test(msg)) {
           setErrMsg("Nenhuma câmera encontrada neste dispositivo.");
         } else {
           setErrMsg("Erro ao abrir câmera: " + msg);
@@ -191,66 +196,87 @@ function BarcodeScannerModal({ onDetected, onClose, title = "Escanear Código" }
 
     start();
 
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-        scannerRef.current.clear().catch(() => {});
-      }
-    };
+    // Cleanup when React unmounts the modal (e.g. user taps Fechar)
+    return () => { doneRef.current = true; stopScanner(); };
   }, []);
+
+  const handleClose = useCallback(async () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    await stopScanner();
+    onClose();
+  }, [stopScanner, onClose]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#0d0d20", borderBottom: "1px solid #2d2d4a", flexShrink: 0 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 16, color: "#e2e8f0" }}>📷 {title}</div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-            {status === "loading" && "Iniciando câmera…"}
-            {status === "active" && "Aponte para o código de barras"}
-            {status === "error" && "Erro"}
+            {status === "loading"  && "Iniciando câmera…"}
+            {status === "active"   && "Aponte para o código de barras"}
+            {status === "detected" && "✅ Código lido! Voltando…"}
+            {status === "error"    && "Câmera indisponível"}
           </div>
         </div>
-        <button
-          onClick={() => { if (scannerRef.current) scannerRef.current.stop().catch(() => {}); onClose(); }}
+        <button onClick={handleClose}
           style={{ background: "#ef444422", border: "1px solid #ef444444", borderRadius: 8, color: "#ef4444", padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 15, fontFamily: "inherit" }}>
           Fechar
         </button>
       </div>
 
-      {/* Camera area */}
+      {/* ── Camera viewport ── */}
       <div style={{ flex: 1, position: "relative", background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+
         {status === "loading" && (
-          <div style={{ textAlign: "center", color: "#6b7280" }}>
+          <div style={{ position: "absolute", textAlign: "center", color: "#6b7280", zIndex: 1 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📷</div>
             <div style={{ fontSize: 14 }}>Abrindo câmera…</div>
           </div>
         )}
-        {status === "error" && (
-          <div style={{ textAlign: "center", padding: "0 24px" }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
-            <div style={{ color: "#ef4444", fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Câmera indisponível</div>
-            <div style={{ color: "#9ca3af", fontSize: 13, lineHeight: 1.6 }}>{errMsg}</div>
+
+        {status === "detected" && (
+          <div style={{ position: "absolute", inset: 0, background: "#a855f733", zIndex: 10,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "#0d0d20", border: "2px solid #a855f7", borderRadius: 16,
+                          padding: "20px 32px", textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+              <div style={{ color: "#c084fc", fontWeight: 800, fontSize: 16 }}>Código lido!</div>
+              <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>Voltando…</div>
+            </div>
           </div>
         )}
-        {/* html5-qrcode mounts the video inside this div */}
-        <div
-          id={containerId}
-          style={{ width: "100%", height: "100%", display: status === "error" ? "none" : "block" }}
-        />
-        {/* Scan frame overlay — shown only when active */}
+
+        {status === "error" && (
+          <div style={{ textAlign: "center", padding: "0 28px" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+            <div style={{ color: "#ef4444", fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Câmera indisponível</div>
+            <div style={{ color: "#9ca3af", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-line" }}>{errMsg}</div>
+          </div>
+        )}
+
+        {/* html5-qrcode renders <video> inside this div */}
+        <div id={containerId}
+          style={{ width: "100%", height: "100%", display: status === "error" ? "none" : "block" }} />
+
+        {/* Scan frame — visible only when camera is active */}
         {status === "active" && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                        justifyContent: "center", pointerEvents: "none" }}>
             <div style={{ width: 260, height: 120, position: "relative" }}>
               {[
-                { top: 0, left: 0, borderTop: "3px solid #a855f7", borderLeft: "3px solid #a855f7" },
-                { top: 0, right: 0, borderTop: "3px solid #a855f7", borderRight: "3px solid #a855f7" },
-                { bottom: 0, left: 0, borderBottom: "3px solid #a855f7", borderLeft: "3px solid #a855f7" },
+                { top: 0,    left: 0,  borderTop:    "3px solid #a855f7", borderLeft:  "3px solid #a855f7" },
+                { top: 0,    right: 0, borderTop:    "3px solid #a855f7", borderRight: "3px solid #a855f7" },
+                { bottom: 0, left: 0,  borderBottom: "3px solid #a855f7", borderLeft:  "3px solid #a855f7" },
                 { bottom: 0, right: 0, borderBottom: "3px solid #a855f7", borderRight: "3px solid #a855f7" },
               ].map((s, i) => (
                 <div key={i} style={{ position: "absolute", width: 24, height: 24, borderRadius: 3, ...s }} />
               ))}
-              <div style={{ position: "absolute", left: 4, right: 4, top: "50%", height: 2, background: "linear-gradient(90deg,transparent,#a855f7,#c084fc,#a855f7,transparent)", animation: "scanline 1.6s ease-in-out infinite" }} />
+              <div style={{ position: "absolute", left: 4, right: 4, top: "50%", height: 2,
+                            background: "linear-gradient(90deg,transparent,#a855f7,#c084fc,#a855f7,transparent)",
+                            animation: "scanline 1.6s ease-in-out infinite" }} />
             </div>
           </div>
         )}
@@ -1098,31 +1124,288 @@ function Estoque({ db }) {
   );
 }
 
-// ─── BACKUP ───────────────────────────────────────────────────────────────────
-function Backup({ db, commit }) {
+// ─── GOOGLE DRIVE SYNC ───────────────────────────────────────────────────────
+//
+// Auth:    Google Identity Services (OAuth popup — no keys exposed)
+// File:    My Drive / BeautyControl / beautycontrol-data.json
+// Trigger: every commit() via debounce (300 ms) — local always wins
+//
+// Setup (one-time, free):
+//   1. console.cloud.google.com → new project → Enable "Google Drive API"
+//   2. APIs & Services → OAuth consent screen → External → add your email
+//   3. Credentials → Create OAuth client ID → Web application
+//   4. Authorised JavaScript origins → add your GitHub Pages URL
+//   5. Copy the Client ID → paste in Backup settings inside the app
+
+const DRIVE_FOLDER   = "BeautyControl";
+const DRIVE_FILE     = "beautycontrol-data.json";
+const DRIVE_SCOPE    = "https://www.googleapis.com/auth/drive.file";
+const GIS_URL        = "https://accounts.google.com/gsi/client";
+const GAPI_URL       = "https://apis.google.com/js/api.js";
+const PUSH_DEBOUNCE  = 300; // ms — coalesce rapid commits into one upload
+
+// ── useDriveSync ─────────────────────────────────────────────────────────────
+function useDriveSync(syncListenerRef) {
+  const [clientId, setClientId]   = useState(() => localStorage.getItem("bc_gclient") || "");
+  const [status, setStatus]       = useState("disconnected"); // disconnected|connecting|ready|syncing|error
+  const [statusMsg, setStatusMsg] = useState("");
+  const [lastSync, setLastSync]   = useState(() => localStorage.getItem("bc_lastsync") || null);
+
+  const tokenRef    = useRef(null);  // { value, expiresAt }
+  const clientRef   = useRef(null);  // GIS TokenClient
+  const fileIdRef   = useRef(null);  // cached Drive file ID
+  const folderIdRef = useRef(null);  // cached Drive folder ID
+  const tokenWait   = useRef(null);  // { resolve, reject } for pending getToken
+  const debounceRef = useRef(null);  // setTimeout handle for push debounce
+  const pushRunning = useRef(false); // prevent concurrent pushes
+  const readyRef    = useRef(false); // true once successfully connected
+
+  // ── Lazy-load GIS + GAPI ──────────────────────────────────────────────────
+  const loadScripts = useCallback(async () => {
+    if (!window.google?.accounts?.oauth2) {
+      await new Promise((ok, fail) => {
+        const s = document.createElement("script");
+        s.src = GIS_URL; s.onload = ok;
+        s.onerror = () => fail(new Error("Falha ao carregar Google Identity Services"));
+        document.head.appendChild(s);
+      });
+    }
+    if (!window.gapi?.client) {
+      await new Promise((ok, fail) => {
+        const s = document.createElement("script");
+        s.src = GAPI_URL; s.onload = ok;
+        s.onerror = () => fail(new Error("Falha ao carregar Google API"));
+        document.head.appendChild(s);
+      });
+      await new Promise(ok => window.gapi.load("client", ok));
+      await window.gapi.client.init({});
+    }
+  }, []);
+
+  // ── Get token (reuse if valid, silently refresh otherwise) ────────────────
+  const getToken = useCallback(() => new Promise((resolve, reject) => {
+    const t = tokenRef.current;
+    if (t && Date.now() < t.expiresAt - 30_000) return resolve(t.value);
+    if (!clientRef.current) return reject(new Error("Drive não conectado"));
+    tokenWait.current = { resolve, reject };
+    clientRef.current.requestAccessToken({ prompt: "" }); // silent refresh
+  }), []);
+
+  // ── Init GIS token client ─────────────────────────────────────────────────
+  const initTokenClient = useCallback((cid) => {
+    clientRef.current = window.google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: DRIVE_SCOPE,
+      callback: (resp) => {
+        if (resp.error) {
+          const err = new Error("Auth error: " + resp.error);
+          setStatus("error"); setStatusMsg("Autenticação falhou: " + resp.error);
+          if (tokenWait.current) { tokenWait.current.reject(err); tokenWait.current = null; }
+          return;
+        }
+        tokenRef.current = { value: resp.access_token, expiresAt: Date.now() + resp.expires_in * 1000 };
+        window.gapi.client.setToken({ access_token: resp.access_token });
+        if (tokenWait.current) { tokenWait.current.resolve(resp.access_token); tokenWait.current = null; }
+        // First successful token = connected
+        if (!readyRef.current) { readyRef.current = true; setStatus("ready"); setStatusMsg(""); }
+      },
+    });
+  }, []);
+
+  // ── Drive REST helpers ────────────────────────────────────────────────────
+  const driveReq = useCallback(async (method, path, { params, body, upload, rawBody } = {}) => {
+    const token  = await getToken();
+    const base   = upload
+      ? "https://www.googleapis.com/upload/drive/v3/"
+      : "https://www.googleapis.com/drive/v3/";
+    const qs     = params ? "?" + new URLSearchParams(params) : "";
+    const headers = { Authorization: "Bearer " + token };
+    if (body && !rawBody) headers["Content-Type"] = "application/json";
+    const res = await fetch(base + path + qs, {
+      method,
+      headers,
+      body: rawBody ? rawBody : body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => res.status);
+      throw new Error(`Drive ${method} ${path} → ${res.status}: ${txt}`);
+    }
+    return res.status === 204 ? null : res.json();
+  }, [getToken]);
+
+  // Find-or-create the BeautyControl folder
+  const getFolder = useCallback(async () => {
+    if (folderIdRef.current) return folderIdRef.current;
+    const res = await driveReq("GET", "files", {
+      params: { q: `name='${DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`, fields: "files(id)" }
+    });
+    if (res.files.length) { folderIdRef.current = res.files[0].id; return folderIdRef.current; }
+    const f = await driveReq("POST", "files", { body: { name: DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder" } });
+    folderIdRef.current = f.id;
+    return f.id;
+  }, [driveReq]);
+
+  // Find the backup file
+  const getFileId = useCallback(async (folderId) => {
+    if (fileIdRef.current) return fileIdRef.current;
+    const res = await driveReq("GET", "files", {
+      params: { q: `name='${DRIVE_FILE}' and '${folderId}' in parents and trashed=false`, fields: "files(id)" }
+    });
+    fileIdRef.current = res.files[0]?.id || null;
+    return fileIdRef.current;
+  }, [driveReq]);
+
+  // ── PUSH — write local → Drive (local always wins) ───────────────────────
+  const push = useCallback(async (dbSnapshot) => {
+    if (!readyRef.current) return; // not connected
+    if (pushRunning.current) return; // already running
+    pushRunning.current = true;
+    setStatus("syncing");
+
+    try {
+      const payload = JSON.stringify({
+        _meta: { app: "BeautyControl", syncedAt: new Date().toISOString() },
+        ...dbSnapshot,
+      });
+
+      const folderId = await getFolder();
+      const fileId   = await getFileId(folderId);
+
+      if (fileId) {
+        // Update existing file content
+        const token = await getToken();
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+          method: "PATCH",
+          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+          body: payload,
+        });
+      } else {
+        // Create new file (multipart)
+        const token  = await getToken();
+        const meta   = JSON.stringify({ name: DRIVE_FILE, parents: [folderId] });
+        const boundary = "bc_boundary_" + Date.now();
+        const body = [
+          `--${boundary}`,
+          "Content-Type: application/json; charset=UTF-8",
+          "",
+          meta,
+          `--${boundary}`,
+          "Content-Type: application/json",
+          "",
+          payload,
+          `--${boundary}--`,
+        ].join("\r\n");
+
+        const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token, "Content-Type": `multipart/related; boundary=${boundary}` },
+          body,
+        });
+        const f = await res.json();
+        fileIdRef.current = f.id;
+      }
+
+      const ts = new Date().toISOString();
+      setLastSync(ts);
+      localStorage.setItem("bc_lastsync", ts);
+      setStatus("ready");
+      setStatusMsg("");
+    } catch (e) {
+      setStatus("error");
+      setStatusMsg(e.message || String(e));
+      // Auto-retry after 10 s
+      setTimeout(() => { if (readyRef.current) setStatus("ready"); }, 10_000);
+    } finally {
+      pushRunning.current = false;
+    }
+  }, [getFolder, getFileId, getToken]);
+
+  // ── Debounced push — called on every commit() ─────────────────────────────
+  const schedulePush = useCallback((dbSnapshot) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => push(dbSnapshot), PUSH_DEBOUNCE);
+  }, [push]);
+
+  // ── Register listener so commit() triggers auto-push ─────────────────────
+  useEffect(() => {
+    syncListenerRef.current = schedulePush;
+    return () => { syncListenerRef.current = null; };
+  }, [schedulePush]);
+
+  // ── Connect — open Google OAuth popup ────────────────────────────────────
+  const connect = useCallback(async (cid) => {
+    const id = (cid || clientId).trim();
+    if (!id) { setStatus("error"); setStatusMsg("Cole o Client ID antes de conectar."); return; }
+    setStatus("connecting"); setStatusMsg("Carregando Google…");
+    try {
+      await loadScripts();
+      initTokenClient(id);
+      localStorage.setItem("bc_gclient", id);
+      setClientId(id);
+      setStatusMsg("Aguardando login…");
+      // Opens the Google account chooser popup
+      clientRef.current.requestAccessToken({ prompt: "consent" });
+    } catch (e) {
+      setStatus("error"); setStatusMsg(e.message || String(e));
+    }
+  }, [clientId, loadScripts, initTokenClient]);
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
+  const disconnect = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    if (tokenRef.current?.value && window.google?.accounts?.oauth2) {
+      window.google.accounts.oauth2.revoke(tokenRef.current.value, () => {});
+    }
+    tokenRef.current = null; fileIdRef.current = null; folderIdRef.current = null;
+    clientRef.current = null; readyRef.current = false;
+    syncListenerRef.current = null;
+    setStatus("disconnected"); setStatusMsg(""); setLastSync(null);
+    localStorage.removeItem("bc_lastsync");
+  }, []);
+
+  // ── Auto-reconnect silently on mount if we have a stored client ID ────────
+  useEffect(() => {
+    const cid = localStorage.getItem("bc_gclient");
+    if (!cid) return;
+    setClientId(cid);
+    // Load scripts and re-init client; token will be requested silently on next push
+    loadScripts().then(() => {
+      initTokenClient(cid);
+      // Request a token silently (no prompt) to restore session
+      if (clientRef.current) {
+        tokenWait.current = {
+          resolve: (tok) => { readyRef.current = true; setStatus("ready"); setStatusMsg(""); },
+          reject:  () => { setStatus("disconnected"); },
+        };
+        clientRef.current.requestAccessToken({ prompt: "" });
+      }
+    }).catch(() => setStatus("disconnected"));
+  }, []);
+
+  return { clientId, status, statusMsg, lastSync, connect, disconnect };
+}
+
+// ─── BACKUP PAGE ──────────────────────────────────────────────────────────────
+function Backup({ db, commit, syncListenerRef }) {
   const [restoreState, setRestoreState] = useState("idle");
-  const [restoreMsg, setRestoreMsg] = useState("");
-  const [previewData, setPreviewData] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
+  const [restoreMsg, setRestoreMsg]     = useState("");
+  const [previewData, setPreviewData]   = useState(null);
+  const [dragOver, setDragOver]         = useState(false);
+  const [cidInput, setCidInput]         = useState("");
+  const [showHelp, setShowHelp]         = useState(false);
+
+  const drive = useDriveSync(syncListenerRef);
+
+  useEffect(() => { if (drive.clientId) setCidInput(drive.clientId); }, [drive.clientId]);
 
   const doExport = () => {
-    const payload = { _meta: { app: "BeautyControl", version: "1.0", exportedAt: new Date().toISOString() }, ...db };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+    const blob = new Blob([JSON.stringify({ _meta: { app: "BeautyControl", exportedAt: new Date().toISOString() }, ...db }, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
-    a.href = url; a.download = `beautycontrol-backup-${today()}.json`; a.click();
-    URL.revokeObjectURL(url);
+    a.href = URL.createObjectURL(blob); a.download = `beautycontrol-${today()}.json`; a.click();
   };
 
   const parseFile = file => {
     if (!file) return;
-    new FileReader().onload = e => {
-      try {
-        const data = JSON.parse(e.target.result);
-        if (!data.produtos || !data.clientes) { setRestoreState("error"); setRestoreMsg("Arquivo inválido."); return; }
-        setPreviewData(data); setRestoreState("confirm");
-      } catch { setRestoreState("error"); setRestoreMsg("Erro ao ler o arquivo."); }
-    };
     const r = new FileReader();
     r.onload = e => {
       try {
@@ -1141,111 +1424,191 @@ function Backup({ db, commit }) {
 
   const reset = () => { setRestoreState("idle"); setPreviewData(null); setRestoreMsg(""); };
 
+  // Status display config
+  const SC = { disconnected: "#6b7280", connecting: "#f59e0b", ready: "#22c55e", syncing: "#3b82f6", error: "#ef4444" };
+  const SL = { disconnected: "Desconectado", connecting: "Conectando…", ready: "Sincronizado", syncing: "Salvando…", error: "Erro" };
+  const SI = { disconnected: "☁️", connecting: "⏳", ready: "✅", syncing: "🔄", error: "⚠️" };
+
   const stats = [
-    { label: "Produtos", value: db.produtos.length, icon: "💄" },
-    { label: "Clientes", value: db.clientes.length, icon: "👥" },
-    { label: "Vendas", value: db.vendas.length, icon: "🛒" },
-    { label: "Empenhos", value: db.empenhos.length, icon: "📋" },
-    { label: "Movimentos", value: db.movimentos.length, icon: "📦" },
+    { label: "Produtos",  value: db.produtos.length,   icon: "💄" },
+    { label: "Clientes",  value: db.clientes.length,    icon: "👥" },
+    { label: "Vendas",    value: db.vendas.length,      icon: "🛒" },
+    { label: "Movimentos",value: db.movimentos.length,  icon: "📦" },
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <PageHeader title="Backup" subtitle="Exportar e importar dados" />
+      <PageHeader title="Backup" subtitle="Local e Google Drive" />
 
-      <Card>
+      {/* ── GOOGLE DRIVE CARD ── */}
+      <Card style={{ border: `1px solid ${SC[drive.status]}33` }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#a855f7,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>💾</div>
-          <div style={{ flex: 1 }}>
-            <h2 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Exportar Backup</h2>
-            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>Gera um arquivo <code style={{ background: "#1e1e38", padding: "1px 5px", borderRadius: 4, color: "#c084fc" }}>.json</code> com todos os dados. Salve no Google Drive, e-mail ou pen drive.</p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-              {stats.map(s => (
-                <div key={s.label} style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 8, padding: "6px 12px", display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 14 }}>{s.icon}</span>
-                  <div><div style={{ fontWeight: 800, fontSize: 14, color: "#c084fc" }}>{s.value}</div><div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase" }}>{s.label}</div></div>
-                </div>
-              ))}
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#4285f4,#34a853)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>☁️</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Status header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Google Drive</h2>
+              <span style={{ background: SC[drive.status] + "22", color: SC[drive.status], border: `1px solid ${SC[drive.status]}44`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                {SI[drive.status]} {SL[drive.status]}
+              </span>
             </div>
-            <Btn full onClick={doExport}>⬇️ Baixar Backup</Btn>
+
+            {/* Last sync timestamp */}
+            {drive.lastSync && drive.status !== "disconnected" && (
+              <p style={{ margin: "0 0 10px", fontSize: 11, color: "#6b7280" }}>
+                Último sync: {new Date(drive.lastSync).toLocaleString("pt-BR")}
+              </p>
+            )}
+
+            {/* Error message */}
+            {drive.status === "error" && drive.statusMsg && (
+              <div style={{ background: "#ef444411", border: "1px solid #ef444433", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>
+                {drive.statusMsg}
+              </div>
+            )}
+
+            {/* DISCONNECTED — show setup */}
+            {(drive.status === "disconnected" || drive.status === "error") && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <p style={{ margin: 0, fontSize: 13, color: "#9ca3af", lineHeight: 1.5 }}>
+                  Conecte uma conta Google para salvar seus dados automaticamente no Drive toda vez que fizer uma alteração.
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    value={cidInput}
+                    onChange={e => setCidInput(e.target.value)}
+                    placeholder="Client ID do Google (…googleusercontent.com)"
+                    style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 13, outline: "none", minWidth: 0 }}
+                    onFocus={e => e.target.style.border = "1px solid #c084fc"}
+                    onBlur={e => e.target.style.border = "1px solid #2d2d4a"}
+                  />
+                  <button
+                    onClick={() => setShowHelp(v => !v)}
+                    style={{ background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, color: "#6b7280", padding: "0 12px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
+                    ?
+                  </button>
+                </div>
+                {showHelp && (
+                  <div style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 10, padding: 14, fontSize: 12, color: "#9ca3af", lineHeight: 1.8 }}>
+                    <b style={{ color: "#c084fc" }}>Como obter o Client ID (gratuito):</b><br />
+                    1. <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: "#818cf8" }}>console.cloud.google.com</a> → Criar projeto<br />
+                    2. Menu → APIs → Biblioteca → ativar <b>Google Drive API</b><br />
+                    3. Tela de consentimento OAuth → Externo → adicionar seu e-mail<br />
+                    4. Credenciais → Criar → ID do cliente OAuth → Aplicativo Web<br />
+                    5. Origens JS autorizadas → adicionar <b>sua URL do GitHub Pages</b><br />
+                    6. Copiar o <b>ID do cliente</b> e colar acima
+                  </div>
+                )}
+                <Btn full onClick={() => drive.connect(cidInput)}>
+                  Entrar com Google →
+                </Btn>
+              </div>
+            )}
+
+            {/* CONNECTED — minimal UI, sync is automatic */}
+            {(drive.status === "ready" || drive.status === "syncing" || drive.status === "connecting") && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ background: "#22c55e11", border: "1px solid #22c55e33", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
+                  ✅ Sync automático ativado — seus dados são salvos no Google Drive a cada alteração.
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: "#4b5563", textAlign: "center" }}>
+                  Arquivo: <code style={{ color: "#818cf8" }}>BeautyControl/{DRIVE_FILE}</code>
+                </p>
+                <button
+                  onClick={drive.disconnect}
+                  style={{ background: "none", border: "none", color: "#4b5563", fontSize: 12, cursor: "pointer", padding: "4px 0", fontFamily: "inherit", textAlign: "center" }}>
+                  Desconectar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </Card>
 
+      {/* ── LOCAL EXPORT ── */}
+      <Card>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#a855f7,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>💾</div>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Backup Local</h2>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>Baixa um arquivo .json com todos os dados.</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {stats.map(s => (
+                <div key={s.label} style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 8, padding: "6px 10px", display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 13 }}>{s.icon}</span>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: "#c084fc" }}>{s.value}</div>
+                    <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase" }}>{s.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Btn full onClick={doExport}>⬇️ Baixar .json</Btn>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── LOCAL RESTORE ── */}
       <Card>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#3b82f6,#1d4ed8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>📂</div>
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Restaurar Backup</h2>
-            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>Selecione o arquivo de backup. <span style={{ color: "#f59e0b" }}>⚠️ Os dados atuais serão substituídos.</span></p>
-
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>
+              Selecione um .json do BeautyControl. <span style={{ color: "#f59e0b" }}>⚠️ Dados atuais serão substituídos.</span>
+            </p>
             {restoreState === "idle" && (
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={e => { e.preventDefault(); setDragOver(false); parseFile(e.dataTransfer.files[0]); }}
                 onClick={() => document.getElementById("bk-file").click()}
-                style={{ border: `2px dashed ${dragOver ? "#a855f7" : "#2d2d4a"}`, borderRadius: 10, padding: "24px 16px", textAlign: "center", cursor: "pointer", background: dragOver ? "#a855f711" : "#0a0a1a" }}>
-                <div style={{ fontSize: 30, marginBottom: 8 }}>📁</div>
-                <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 14, marginBottom: 4 }}>Toque para selecionar ou arraste</div>
-                <div style={{ fontSize: 12, color: "#4b5563" }}>Arquivos <code style={{ color: "#818cf8" }}>.json</code> do BeautyControl</div>
+                style={{ border: `2px dashed ${dragOver ? "#a855f7" : "#2d2d4a"}`, borderRadius: 10, padding: "22px 16px", textAlign: "center", cursor: "pointer", background: dragOver ? "#a855f711" : "#0a0a1a" }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>📁</div>
+                <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 14, marginBottom: 4 }}>Toque para selecionar</div>
+                <div style={{ fontSize: 12, color: "#4b5563" }}>Arquivos .json do BeautyControl</div>
                 <input id="bk-file" type="file" accept=".json" style={{ display: "none" }} onChange={e => parseFile(e.target.files[0])} />
               </div>
             )}
-
             {restoreState === "confirm" && previewData && (
-              <div style={{ background: "#0a0a1a", border: "1px solid #f59e0b44", borderRadius: 10, padding: 16 }}>
+              <div style={{ background: "#0a0a1a", border: "1px solid #f59e0b44", borderRadius: 10, padding: 14 }}>
                 <p style={{ margin: "0 0 8px", fontWeight: 700, color: "#f59e0b", fontSize: 14 }}>⚠️ Confirmar Restauração</p>
-                {previewData._meta && <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6b7280" }}>Exportado em: {new Date(previewData._meta.exportedAt).toLocaleString("pt-BR")}</p>}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-                  {[{ l: "Produtos", v: previewData.produtos?.length }, { l: "Clientes", v: previewData.clientes?.length }, { l: "Vendas", v: previewData.vendas?.length }].map(s => (
-                    <div key={s.l} style={{ background: "#12122a", border: "1px solid #1e1e38", borderRadius: 8, padding: "6px 12px" }}>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: "#3b82f6" }}>{s.v ?? 0}</div>
-                      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase" }}>{s.l}</div>
+                {previewData._meta?.exportedAt && <p style={{ margin: "0 0 10px", fontSize: 12, color: "#6b7280" }}>Exportado em: {new Date(previewData._meta.exportedAt).toLocaleString("pt-BR")}</p>}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {[["Produtos", previewData.produtos?.length], ["Clientes", previewData.clientes?.length], ["Vendas", previewData.vendas?.length]].map(([l, v]) => (
+                    <div key={l} style={{ background: "#12122a", border: "1px solid #1e1e38", borderRadius: 8, padding: "6px 12px" }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: "#3b82f6" }}>{v ?? 0}</div>
+                      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase" }}>{l}</div>
                     </div>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", gap: 8 }}>
                   <Btn variant="ghost" full onClick={reset}>Cancelar</Btn>
                   <Btn variant="danger" full onClick={confirmRestore}>🔄 Restaurar</Btn>
                 </div>
               </div>
             )}
-
             {restoreState === "success" && (
-              <div style={{ background: "#22c55e11", border: "1px solid #22c55e44", borderRadius: 10, padding: 20, textAlign: "center" }}>
-                <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
-                <div style={{ fontWeight: 800, color: "#22c55e", fontSize: 15, marginBottom: 4 }}>Restaurado com sucesso!</div>
-                <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>Todos os dados foram carregados.</div>
+              <div style={{ background: "#22c55e11", border: "1px solid #22c55e44", borderRadius: 10, padding: 18, textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                <div style={{ fontWeight: 800, color: "#22c55e", fontSize: 15, marginBottom: 8 }}>Restaurado com sucesso!</div>
                 <Btn full variant="success" onClick={reset}>OK</Btn>
               </div>
             )}
-
             {restoreState === "error" && (
-              <div style={{ background: "#ef444411", border: "1px solid #ef444444", borderRadius: 10, padding: 20, textAlign: "center" }}>
-                <div style={{ fontSize: 30, marginBottom: 8 }}>❌</div>
-                <div style={{ fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>Erro na restauração</div>
-                <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 14 }}>{restoreMsg}</div>
+              <div style={{ background: "#ef444411", border: "1px solid #ef444444", borderRadius: 10, padding: 18, textAlign: "center" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>❌</div>
+                <div style={{ color: "#ef4444", fontWeight: 700, marginBottom: 4 }}>Erro</div>
+                <div style={{ color: "#9ca3af", fontSize: 13, marginBottom: 12 }}>{restoreMsg}</div>
                 <Btn full variant="ghost" onClick={reset}>Tentar novamente</Btn>
               </div>
             )}
           </div>
         </div>
       </Card>
-
-      <Card style={{ background: "#0a0a1a" }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1 }}>📖 Como migrar para outro dispositivo</h3>
-        {['Clique em "Baixar Backup" neste dispositivo.', "Salve no Google Drive, WhatsApp ou e-mail.", "No novo dispositivo, abra o BeautyControl.", 'Vá em "Backup" e selecione o arquivo .json.', "Confirme — seus dados serão carregados!"].map((txt, i) => (
-          <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: "linear-gradient(135deg,#a855f7,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", flexShrink: 0 }}>{i + 1}</div>
-            <p style={{ margin: 0, fontSize: 13, color: "#9ca3af", lineHeight: 1.5 }}>{txt}</p>
-          </div>
-        ))}
-      </Card>
     </div>
   );
 }
-
 
 // ─── INVENTÁRIO ───────────────────────────────────────────────────────────────
 // Fluxo: idle → contando (produto a produto) → revisão → confirmado
@@ -1685,7 +2048,7 @@ const NAV = [
 
 function App() {
   const [page, setPage] = useState("dashboard");
-  const { db, commit } = useDB();
+  const { db, commit, syncListenerRef } = useDB();
   const mobile = useIsMobile();
   const PAGE = { dashboard: Dashboard, produtos: Produtos, clientes: Clientes, vendas: Vendas, empenhos: Empenhos, estoque: Estoque, inventario: Inventario, backup: Backup };
   const PageComp = PAGE[page];
@@ -1742,7 +2105,7 @@ function App() {
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#6b7280", fontWeight: 700 }}>{NAV.find(n => n.id === page)?.label}</span>
           </div>
         )}
-        <PageComp db={db} commit={commit} />
+        <PageComp db={db} commit={commit} syncListenerRef={syncListenerRef} />
       </main>
 
       {/* ── Mobile bottom nav ── */}
@@ -1760,41 +2123,36 @@ function App() {
   );
 }
 
-// ── Mount ──
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-// ── Splash ──
-setTimeout(() => {
-  const s = document.getElementById('splash');
-  if (s) { s.classList.add('fade'); setTimeout(() => { try{s.remove()}catch(e){} }, 500); }
-}, 1200);
+setTimeout(function(){
+  var s=document.getElementById('splash');
+  if(s){s.classList.add('fade');setTimeout(function(){try{s.remove()}catch(e){}},500);}
+},1200);
 </script>
 
 <script>
 (function(){
-  // ── Service Worker ──
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
       navigator.serviceWorker.register('./sw.js').catch(function(){});
     });
   }
-
-  // ── PWA install banner ──
-  var deferred = null;
-  var standalone = function(){ return window.matchMedia('(display-mode:standalone)').matches || navigator.standalone===true; };
-  window.addEventListener('beforeinstallprompt', function(e){
-    e.preventDefault(); deferred = e;
-    if (standalone()) return;
+  var d=null;
+  var sa=function(){return window.matchMedia('(display-mode:standalone)').matches||navigator.standalone===true;};
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault(); d=e;
+    if(sa()) return;
     setTimeout(function(){
-      if (!deferred) return;
-      var card = document.createElement('div');
-      card.style.cssText = 'position:fixed;bottom:66px;left:10px;right:10px;z-index:500';
-      card.innerHTML = '<div style="background:#1e1e38;border:1px solid #a855f7;border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 40px #000c;font-family:sans-serif"><span style="font-size:28px;flex-shrink:0">&#x1F485;</span><div style="flex:1;min-width:0"><div style="font-weight:800;color:#e2e8f0;font-size:14px">Instalar BeautyControl</div><div style="font-size:12px;color:#9ca3af;margin-top:3px">Use offline • Tela cheia • Câmera</div></div><button id="pi" style="background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:9px;color:#fff;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap">Instalar</button><button id="pd" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:24px;padding:0 4px;line-height:1">×</button></div>';
-      document.body.appendChild(card);
-      document.getElementById('pi').onclick = function(){ if(!deferred)return; deferred.prompt(); deferred.userChoice.then(function(){ deferred=null; card.remove(); }); };
-      document.getElementById('pd').onclick = function(){ card.remove(); deferred=null; };
-    }, 2000);
+      if(!d) return;
+      var c=document.createElement('div');
+      c.style.cssText='position:fixed;bottom:66px;left:10px;right:10px;z-index:500';
+      c.innerHTML='<div style="background:#1e1e38;border:1px solid #a855f7;border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 40px #000c;font-family:sans-serif"><span style="font-size:28px;flex-shrink:0">&#x1F485;</span><div style="flex:1;min-width:0"><div style="font-weight:800;color:#e2e8f0;font-size:14px">Instalar BeautyControl</div><div style="font-size:12px;color:#9ca3af;margin-top:3px">Offline • Câmera • Drive sync</div></div><button id="pi" style="background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:9px;color:#fff;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap">Instalar</button><button id="pd" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:24px;padding:0 4px;line-height:1">×</button></div>';
+      document.body.appendChild(c);
+      document.getElementById('pi').onclick=function(){if(!d)return;d.prompt();d.userChoice.then(function(){d=null;c.remove();});};
+      document.getElementById('pd').onclick=function(){c.remove();d=null;};
+    },2000);
   });
-  window.addEventListener('appinstalled', function(){ deferred=null; });
+  window.addEventListener('appinstalled',function(){d=null;});
 })();
 </script>
 </body>
