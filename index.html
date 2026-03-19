@@ -310,11 +310,87 @@ function BarcodeInput({ label, value, onChange, onScan, placeholder }) {
   );
 }
 
+// ─── SearchableSelect — fuzzy search combobox ────────────────────────────────
+function SearchableSelect({ label, options, value, onChange, placeholder }) {
+  const [query, setQuery]   = useState("");
+  const [open, setOpen]     = useState(false);
+  const wrapRef             = useRef(null);
+  const selected            = options.find(o => String(o.value) === String(value));
+
+  // Close on outside click
+  useEffect(() => {
+    const fn = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+
+  // Approximate match: every word of the query must appear somewhere in the label
+  const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const filtered = options.filter(o => {
+    const lbl = o.label.toLowerCase();
+    return words.length === 0 || words.every(w => lbl.includes(w));
+  });
+
+  const pick = o => { onChange(o.value); setQuery(""); setOpen(false); };
+  const clear = () => { onChange(""); setQuery(""); };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, position: "relative" }} ref={wrapRef}>
+      {label && <label style={{ fontSize: 12, fontWeight: 600, color: "#9ca3af", letterSpacing: 0.5, textTransform: "uppercase" }}>{label}</label>}
+      <div style={{ display: "flex", gap: 0 }}>
+        <input
+          value={open ? query : (selected?.label || "")}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { setOpen(true); setQuery(""); }}
+          placeholder={placeholder || "Digite para filtrar…"}
+          style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: value ? "8px 0 0 8px" : 8, padding: "10px 12px", color: "#e2e8f0", fontSize: 15, outline: "none" }}
+          onBlur={e => e.target.style.borderColor = "#2d2d4a"}
+          onKeyDown={e => { if (e.key === "Escape") setOpen(false); if (e.key === "Enter" && filtered.length) pick(filtered[0]); }}
+        />
+        {value && (
+          <button onClick={clear} style={{ background: "#1a1a2e", border: "1px solid #2d2d4a", borderLeft: "none", borderRadius: "0 8px 8px 0", padding: "0 10px", color: "#6b7280", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>×</button>
+        )}
+      </div>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 999, background: "#0d0d20", border: "1px solid #2d2d4a", borderRadius: 8, marginTop: 2, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px #000a" }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: "10px 12px", fontSize: 13, color: "#4b5563" }}>Nenhum resultado</div>
+          )}
+          {filtered.map(o => (
+            <div key={o.value} onMouseDown={() => pick(o)} style={{ padding: "10px 12px", fontSize: 14, color: String(o.value) === String(value) ? "#c084fc" : "#e2e8f0", cursor: "pointer", background: String(o.value) === String(value) ? "#a855f722" : "transparent", borderBottom: "1px solid #0f0f1e" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#1e1e38"}
+              onMouseLeave={e => e.currentTarget.style.background = String(o.value) === String(value) ? "#a855f722" : "transparent"}>
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = v => v?.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) ?? "—";
 const fmtDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "—";
 const today = () => new Date().toISOString().split("T")[0];
 const STATUS_VENDA = { pendente: "Pendente", pago: "Pago", cancelado: "Cancelado", entregue: "Entregue" };
+// Each venda now has: status ("pendente"|"cancelado"), pago: bool, entregue: bool
+const vendaLabel = v => {
+  if (v.status === "cancelado") return { label: "Cancelado", color: "#ef4444" };
+  if (v.pago && v.entregue)    return { label: "Pago e Entregue", color: "#22c55e" };
+  if (v.pago)                  return { label: "Pago", color: "#3b82f6" };
+  if (v.entregue)              return { label: "Entregue", color: "#f59e0b" };
+  return                              { label: "Pendente", color: "#6b7280" };
+};
+const VendaBadge = ({ v }) => {
+  const { label, color } = vendaLabel(v);
+  return <span style={{ background: color+"22", color, border: `1px solid ${color}44`, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>;
+};
+// Helper: calc empenhado por produto a partir das vendas ativas
+const calcEmpenhado = (db, produtoId) =>
+  db.vendas.filter(v => v.status !== "cancelado" && !v.entregue)
+    .flatMap(v => v.itens).filter(i => i.produtoId === produtoId)
+    .reduce((s, i) => s + i.qtd, 0);
 const STATUS_EMP = { ativo: "Ativo", retirado: "Retirado", cancelado: "Cancelado" };
 const CATEGORIAS = ["Labial", "Rosto", "Olhos", "Sobrancelha", "Skincare", "Fragrância", "Unhas", "Cabelo", "Corpo", "Outros"];
 const PAGAMENTOS = ["pix", "dinheiro", "cartao", "crediario", "outro"];
@@ -741,11 +817,9 @@ function Vendas({ db, commit }) {
 
   const handleScanVenda = (code) => {
     setScanVenda(false);
-    const p = db.produtos.find(x =>
-      x.codigoBarras === code || x.codigo === code
-    );
-    if (!p) { alert("Produto não encontrado para o código: " + code); return; }
-    if (!p.ativo || p.estoque <= 0) { alert("Produto indisponível ou sem estoque."); return; }
+    const p = db.produtos.find(x => x.codigoBarras === code || x.codigo === code);
+    if (!p) { alert("Produto não encontrado: " + code); return; }
+    if (!p.ativo) { alert("Produto inativo."); return; }
     setForm(f => {
       const exists = f.itens.findIndex(i => i.produtoId === p.id);
       if (exists >= 0) {
@@ -756,7 +830,16 @@ function Vendas({ db, commit }) {
     });
   };
 
-  const filtered = db.vendas.filter(v => filter === "todos" || v.status === filter).sort((a, b) => b.data?.localeCompare(a.data));
+  // Filter chips — now filter by pago/entregue flags
+  const filterFn = v => {
+    if (filter === "todos")     return true;
+    if (filter === "pendente")  return v.status !== "cancelado" && !v.pago && !v.entregue;
+    if (filter === "pago")      return v.pago && v.status !== "cancelado";
+    if (filter === "entregue")  return v.entregue && v.status !== "cancelado";
+    if (filter === "cancelado") return v.status === "cancelado";
+    return true;
+  };
+  const filtered = db.vendas.filter(filterFn).sort((a, b) => b.data?.localeCompare(a.data));
 
   const addItem = () => {
     const p = db.produtos.find(x => x.id === +itemForm.produtoId);
@@ -773,22 +856,57 @@ function Vendas({ db, commit }) {
     if (!form.clienteId || form.itens.length === 0) return;
     commit(db => {
       const id = db.nextId.vendas++;
-      db.vendas.push({ ...form, id, clienteId: +form.clienteId, desconto: +form.desconto, frete: +form.frete, status: "pendente" });
+      // Save venda with pago/entregue flags (replaces single status)
+      db.vendas.push({ ...form, id, clienteId: +form.clienteId, desconto: +form.desconto, frete: +form.frete, status: "pendente", pago: false, entregue: false });
+      // Baixa estoque + movimentos
       form.itens.forEach(it => {
         const idx = db.produtos.findIndex(p => p.id === it.produtoId);
         if (idx >= 0) db.produtos[idx].estoque = Math.max(0, db.produtos[idx].estoque - it.qtd);
         db.movimentos.push({ id: db.nextId.movimentos++, tipo: "saida", produtoId: it.produtoId, qtd: it.qtd, data: form.data, obs: `Venda #${id}`, custo: 0 });
       });
+      // Auto-create empenho until delivered
+      if (!db.nextId.empenhos) db.nextId.empenhos = 1;
+      const empId = db.nextId.empenhos++;
+      db.empenhos.push({ id: empId, clienteId: +form.clienteId, data: form.data, status: "ativo", obs: `Empenho automático — Venda #${id}`, dataRetirada: "", itens: form.itens.map(it => ({ ...it })), vendaId: id });
       return db;
     });
     setModal(false);
     setForm({ clienteId: "", data: today(), pagamento: "pix", desconto: 0, frete: 0, itens: [], obs: "" });
   };
 
-  const updateStatus = (v, status) => commit(db => {
+  // Toggle pago independentemente de entregue
+  const togglePago = v => commit(db => {
     const idx = db.vendas.findIndex(x => x.id === v.id);
-    db.vendas[idx].status = status;
-    if (status === "cancelado" && v.status !== "cancelado") v.itens.forEach(it => { const pi = db.produtos.findIndex(p => p.id === it.produtoId); if (pi >= 0) db.produtos[pi].estoque += it.qtd; });
+    db.vendas[idx].pago = !db.vendas[idx].pago;
+    return db;
+  });
+
+  // Toggle entregue — ao entregar, fecha empenho automático vinculado
+  const toggleEntregue = v => commit(db => {
+    const idx = db.vendas.findIndex(x => x.id === v.id);
+    const novoEntregue = !db.vendas[idx].entregue;
+    db.vendas[idx].entregue = novoEntregue;
+    if (novoEntregue) {
+      // Fechar empenho automático desta venda
+      const ei = db.empenhos.findIndex(e => e.vendaId === v.id && e.status === "ativo");
+      if (ei >= 0) db.empenhos[ei].status = "retirado";
+    } else {
+      // Reabrir empenho ao desmarcar entregue
+      const ei = db.empenhos.findIndex(e => e.vendaId === v.id && e.status === "retirado");
+      if (ei >= 0) db.empenhos[ei].status = "ativo";
+    }
+    return db;
+  });
+
+  const cancelarVenda = v => commit(db => {
+    const idx = db.vendas.findIndex(x => x.id === v.id);
+    if (db.vendas[idx].status === "cancelado") return db;
+    db.vendas[idx].status = "cancelado";
+    // Repor estoque
+    v.itens.forEach(it => { const pi = db.produtos.findIndex(p => p.id === it.produtoId); if (pi >= 0) db.produtos[pi].estoque += it.qtd; });
+    // Cancelar empenho vinculado
+    const ei = db.empenhos.findIndex(e => e.vendaId === v.id && e.status === "ativo");
+    if (ei >= 0) db.empenhos[ei].status = "cancelado";
     return db;
   });
 
@@ -817,15 +935,19 @@ function Vendas({ db, commit }) {
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={{ fontWeight: 800, color: "#a855f7" }}>{fmt(vtotal)}</div>
-                <div style={{ marginTop: 4 }}><Badge status={v.status} map={STATUS_VENDA} /></div>
+                <div style={{ marginTop: 4 }}><VendaBadge v={v} /></div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               <Btn small variant="ghost" onClick={() => setDetail(v)}>Ver</Btn>
-              {v.status === "pendente" && <>
-                <Btn small variant="success" onClick={() => updateStatus(v, "pago")}>✓ Pago</Btn>
-                <Btn small variant="secondary" onClick={() => updateStatus(v, "entregue")}>Entregue</Btn>
-                <Btn small variant="danger" onClick={() => updateStatus(v, "cancelado")}>×</Btn>
+              {v.status !== "cancelado" && <>
+                <Btn small variant={v.pago ? "success" : "ghost"} onClick={() => togglePago(v)}>
+                  {v.pago ? "✓ Pago" : "Pago?"}
+                </Btn>
+                <Btn small variant={v.entregue ? "secondary" : "ghost"} onClick={() => toggleEntregue(v)}>
+                  {v.entregue ? "✓ Entregue" : "Entregue?"}
+                </Btn>
+                <Btn small variant="danger" onClick={() => cancelarVenda(v)}>×</Btn>
               </>}
             </div>
           </Row>
@@ -835,10 +957,13 @@ function Vendas({ db, commit }) {
       {modal && (
         <Modal title="Nova Venda" onClose={() => setModal(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Sel label="Cliente *" value={form.clienteId} onChange={e => setForm({ ...form, clienteId: e.target.value })}>
-              <option value="">Selecione...</option>
-              {db.clientes.filter(c => c.ativo).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </Sel>
+            <SearchableSelect
+              label="Cliente *"
+              value={form.clienteId}
+              onChange={v => setForm({ ...form, clienteId: v })}
+              placeholder="Digite o nome do cliente…"
+              options={db.clientes.filter(c => c.ativo).map(c => ({ value: c.id, label: c.nome }))}
+            />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Data" type="date" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })} />
               <Sel label="Pagamento" value={form.pagamento} onChange={e => setForm({ ...form, pagamento: e.target.value })}>
@@ -851,10 +976,12 @@ function Vendas({ db, commit }) {
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase" }}>Produtos</p>
                 <button onClick={() => setScanVenda(true)} style={{ background: "linear-gradient(135deg,#a855f7,#7c3aed)", border: "none", borderRadius: 7, padding: "6px 12px", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5 }}>📷 Escanear</button>
               </div>
-              <Sel value={itemForm.produtoId} onChange={e => setItemForm({ ...itemForm, produtoId: e.target.value })}>
-                <option value="">Escolha um produto...</option>
-                {db.produtos.filter(p => p.ativo && p.estoque > 0).map(p => <option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco)} (est:{p.estoque})</option>)}
-              </Sel>
+              <SearchableSelect
+                value={itemForm.produtoId}
+                onChange={v => setItemForm({ ...itemForm, produtoId: v })}
+                placeholder="Digite o nome do produto…"
+                options={db.produtos.filter(p => p.ativo).map(p => ({ value: p.id, label: `${p.nome} — ${fmt(p.preco)} (est: ${p.estoque})` }))}
+              />
               <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <input type="number" min="1" value={itemForm.qtd} onChange={e => setItemForm({ ...itemForm, qtd: +e.target.value })} style={{ width: 70, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "10px", color: "#e2e8f0", fontSize: 15, textAlign: "center", flexShrink: 0 }} />
                 <Btn full onClick={addItem}>+ Adicionar</Btn>
@@ -904,7 +1031,7 @@ function Vendas({ db, commit }) {
                 { l: "Cliente", v: db.clientes.find(c => c.id === detail.clienteId)?.nome },
                 { l: "Data", v: fmtDate(detail.data) },
                 { l: "Pagamento", v: detail.pagamento },
-                { l: "Status", v: <Badge status={detail.status} map={STATUS_VENDA} /> },
+                { l: "Status", v: <VendaBadge v={detail} /> },
               ].map(x => (
                 <div key={x.l}><p style={{ margin: "0 0 2px", fontSize: 11, color: "#6b7280", textTransform: "uppercase" }}>{x.l}</p><p style={{ margin: 0, fontWeight: 700, color: "#e2e8f0" }}>{x.v}</p></div>
               ))}
@@ -1004,20 +1131,25 @@ function Empenhos({ db, commit }) {
       {modal && (
         <Modal title="Novo Empenho" onClose={() => setModal(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Sel label="Cliente *" value={form.clienteId} onChange={e => setForm({ ...form, clienteId: e.target.value })}>
-              <option value="">Selecione...</option>
-              {db.clientes.filter(c => c.ativo).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </Sel>
+            <SearchableSelect
+              label="Cliente *"
+              value={form.clienteId}
+              onChange={v => setForm({ ...form, clienteId: v })}
+              placeholder="Digite o nome do cliente…"
+              options={db.clientes.filter(c => c.ativo).map(c => ({ value: c.id, label: c.nome }))}
+            />
             <Input label="Data Prevista de Retirada" type="date" value={form.dataRetirada} onChange={e => setForm({ ...form, dataRetirada: e.target.value })} />
             <div style={{ background: "#0a0a1a", borderRadius: 10, padding: 12, border: "1px solid #1e1e38" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase" }}>Produtos</p>
                 <button onClick={() => setScanVenda(true)} style={{ background: "linear-gradient(135deg,#a855f7,#7c3aed)", border: "none", borderRadius: 7, padding: "6px 12px", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5 }}>📷 Escanear</button>
               </div>
-              <Sel value={itemForm.produtoId} onChange={e => setItemForm({ ...itemForm, produtoId: e.target.value })}>
-                <option value="">Produto...</option>
-                {db.produtos.filter(p => p.ativo).map(p => <option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco)}</option>)}
-              </Sel>
+              <SearchableSelect
+                value={itemForm.produtoId}
+                onChange={v => setItemForm({ ...itemForm, produtoId: v })}
+                placeholder="Digite o nome do produto…"
+                options={db.produtos.filter(p => p.ativo).map(p => ({ value: p.id, label: `${p.nome} — ${fmt(p.preco)}` }))}
+              />
               <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <input type="number" min="1" value={itemForm.qtd} onChange={e => setItemForm({ ...itemForm, qtd: +e.target.value })} style={{ width: 70, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "10px", color: "#e2e8f0", fontSize: 15, textAlign: "center", flexShrink: 0 }} />
                 <Btn full onClick={addItem}>+ Adicionar</Btn>
@@ -1074,20 +1206,30 @@ function Estoque({ db }) {
 
       <Card style={{ marginBottom: 20 }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 12, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1 }}>Inventário Atual</h3>
-        {db.produtos.filter(p => p.ativo).map(p => (
-          <Row key={p.id}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>{p.categoria} · Custo: {fmt(p.custo)}</div>
+        {/* Header */}
+        <div style={{ display: "flex", padding: "0 2px 6px", borderBottom: "1px solid #1e1e38", marginBottom: 4 }}>
+          <div style={{ flex: 1, fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: 0.5 }}>Produto</div>
+          <div style={{ width: 46, textAlign: "right", fontSize: 10, color: "#4b5563", textTransform: "uppercase" }}>Total</div>
+          <div style={{ width: 62, textAlign: "right", fontSize: 10, color: "#f59e0b", textTransform: "uppercase" }}>Empenh.</div>
+          <div style={{ width: 62, textAlign: "right", fontSize: 10, color: "#22c55e", textTransform: "uppercase" }}>Dispon.</div>
+        </div>
+        {db.produtos.filter(p => p.ativo).map(p => {
+          const empenhado  = calcEmpenhado(db, p.id);
+          const disponivel = Math.max(0, p.estoque - empenhado);
+          return (
+            <Row key={p.id} style={{ marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{p.categoria} · {fmt(p.custo)}/un.</div>
+                </div>
+                <div style={{ width: 46, textAlign: "right", fontWeight: 800, fontSize: 15, color: p.estoque === 0 ? "#ef4444" : p.estoque <= p.estoqueMin ? "#f59e0b" : "#e2e8f0" }}>{p.estoque}</div>
+                <div style={{ width: 62, textAlign: "right", fontWeight: 700, fontSize: 14, color: empenhado > 0 ? "#f59e0b" : "#4b5563" }}>{empenhado}</div>
+                <div style={{ width: 62, textAlign: "right", fontWeight: 800, fontSize: 15, color: disponivel === 0 ? "#ef4444" : disponivel <= p.estoqueMin ? "#f59e0b" : "#22c55e" }}>{disponivel}</div>
               </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 18, color: p.estoque === 0 ? "#ef4444" : p.estoque <= p.estoqueMin ? "#f59e0b" : "#22c55e" }}>{p.estoque}</div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>{fmt(p.estoque * p.custo)}</div>
-              </div>
-            </div>
-          </Row>
-        ))}
+            </Row>
+          );
+        })}
       </Card>
 
       <Card>
