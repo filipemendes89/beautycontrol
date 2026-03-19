@@ -1333,8 +1333,12 @@ function useDriveSync(syncListenerRef) {
 
   // ── Connect — open Google OAuth popup ────────────────────────────────────
   const connect = useCallback(async (cid) => {
-    const id = (cid || clientId).trim();
-    if (!id) { setStatus("error"); setStatusMsg("Cole o Client ID antes de conectar."); return; }
+    const id = (cid || clientId || localStorage.getItem("bc_gclient") || "").trim();
+    if (!id) {
+      setStatus("error");
+      setStatusMsg("É necessário um Client ID para conectar ao Google Drive. Expanda a seção Configuração Avançada abaixo.");
+      return;
+    }
     setStatus("connecting"); setStatusMsg("Carregando Google…");
     try {
       await loadScripts();
@@ -1390,19 +1394,22 @@ function Backup({ db, commit, syncListenerRef }) {
   const [restoreMsg, setRestoreMsg]     = useState("");
   const [previewData, setPreviewData]   = useState(null);
   const [dragOver, setDragOver]         = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [cidInput, setCidInput]         = useState("");
-  const [showHelp, setShowHelp]         = useState(false);
 
   const drive = useDriveSync(syncListenerRef);
 
+  // Pre-fill input from stored value (set after first connect)
   useEffect(() => { if (drive.clientId) setCidInput(drive.clientId); }, [drive.clientId]);
 
+  // ── Local export ──────────────────────────────────────────────────────────
   const doExport = () => {
     const blob = new Blob([JSON.stringify({ _meta: { app: "BeautyControl", exportedAt: new Date().toISOString() }, ...db }, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `beautycontrol-${today()}.json`; a.click();
   };
 
+  // ── Local restore ─────────────────────────────────────────────────────────
   const parseFile = file => {
     if (!file) return;
     const r = new FileReader();
@@ -1423,16 +1430,17 @@ function Backup({ db, commit, syncListenerRef }) {
 
   const reset = () => { setRestoreState("idle"); setPreviewData(null); setRestoreMsg(""); };
 
-  // Status display config
+  // ── Status helpers ────────────────────────────────────────────────────────
   const SC = { disconnected: "#6b7280", connecting: "#f59e0b", ready: "#22c55e", syncing: "#3b82f6", error: "#ef4444" };
   const SL = { disconnected: "Desconectado", connecting: "Conectando…", ready: "Sincronizado", syncing: "Salvando…", error: "Erro" };
   const SI = { disconnected: "☁️", connecting: "⏳", ready: "✅", syncing: "🔄", error: "⚠️" };
+  const connected = drive.status === "ready" || drive.status === "syncing" || drive.status === "connecting";
 
   const stats = [
-    { label: "Produtos",  value: db.produtos.length,   icon: "💄" },
-    { label: "Clientes",  value: db.clientes.length,    icon: "👥" },
-    { label: "Vendas",    value: db.vendas.length,      icon: "🛒" },
-    { label: "Movimentos",value: db.movimentos.length,  icon: "📦" },
+    { label: "Produtos",   value: db.produtos.length,  icon: "💄" },
+    { label: "Clientes",   value: db.clientes.length,   icon: "👥" },
+    { label: "Vendas",     value: db.vendas.length,     icon: "🛒" },
+    { label: "Movimentos", value: db.movimentos.length, icon: "📦" },
   ];
 
   return (
@@ -1442,79 +1450,89 @@ function Backup({ db, commit, syncListenerRef }) {
       {/* ── GOOGLE DRIVE CARD ── */}
       <Card style={{ border: `1px solid ${SC[drive.status]}33` }}>
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          {/* Icon */}
           <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#4285f4,#34a853)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>☁️</div>
+
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Status header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            {/* Header row */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#e2e8f0" }}>Google Drive</h2>
-              <span style={{ background: SC[drive.status] + "22", color: SC[drive.status], border: `1px solid ${SC[drive.status]}44`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ background: SC[drive.status] + "22", color: SC[drive.status], border: `1px solid ${SC[drive.status]}44`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>
                 {SI[drive.status]} {SL[drive.status]}
               </span>
             </div>
 
-            {/* Last sync timestamp */}
-            {drive.lastSync && drive.status !== "disconnected" && (
+            {/* Last sync */}
+            {drive.lastSync && connected && (
               <p style={{ margin: "0 0 10px", fontSize: 11, color: "#6b7280" }}>
                 Último sync: {new Date(drive.lastSync).toLocaleString("pt-BR")}
               </p>
             )}
 
-            {/* Error message */}
-            {drive.status === "error" && drive.statusMsg && (
-              <div style={{ background: "#ef444411", border: "1px solid #ef444433", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#ef4444", marginBottom: 10 }}>
-                {drive.statusMsg}
-              </div>
-            )}
-
-            {/* DISCONNECTED — show setup */}
-            {(drive.status === "disconnected" || drive.status === "error") && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* ── NOT CONNECTED ── */}
+            {!connected && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <p style={{ margin: 0, fontSize: 13, color: "#9ca3af", lineHeight: 1.5 }}>
-                  Conecte uma conta Google para salvar seus dados automaticamente no Drive toda vez que fizer uma alteração.
+                  Salve seus dados automaticamente no Google Drive a cada alteração.
                 </p>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    value={cidInput}
-                    onChange={e => setCidInput(e.target.value)}
-                    placeholder="Client ID do Google (…googleusercontent.com)"
-                    style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 13, outline: "none", minWidth: 0 }}
-                    onFocus={e => e.target.style.border = "1px solid #c084fc"}
-                    onBlur={e => e.target.style.border = "1px solid #2d2d4a"}
-                  />
-                  <button
-                    onClick={() => setShowHelp(v => !v)}
-                    style={{ background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, color: "#6b7280", padding: "0 12px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
-                    ?
-                  </button>
-                </div>
-                {showHelp && (
-                  <div style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 10, padding: 14, fontSize: 12, color: "#9ca3af", lineHeight: 1.8 }}>
-                    <b style={{ color: "#c084fc" }}>Como obter o Client ID (gratuito):</b><br />
-                    1. <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: "#818cf8" }}>console.cloud.google.com</a> → Criar projeto<br />
-                    2. Menu → APIs → Biblioteca → ativar <b>Google Drive API</b><br />
-                    3. Tela de consentimento OAuth → Externo → adicionar seu e-mail<br />
-                    4. Credenciais → Criar → ID do cliente OAuth → Aplicativo Web<br />
-                    5. Origens JS autorizadas → adicionar <b>sua URL do GitHub Pages</b><br />
-                    6. Copiar o <b>ID do cliente</b> e colar acima
+
+                {/* Error banner */}
+                {drive.status === "error" && drive.statusMsg && (
+                  <div style={{ background: "#ef444411", border: "1px solid #ef444433", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#ef4444" }}>
+                    ⚠️ {drive.statusMsg}
                   </div>
                 )}
-                <Btn full onClick={() => drive.connect(cidInput)}>
-                  Entrar com Google →
+
+                {/* Primary action — no Client ID required upfront */}
+                <Btn full onClick={() => drive.connect(cidInput)} style={{ fontSize: 15, padding: "12px 18px" }}>
+                  <span style={{ fontSize: 18 }}>G</span> Entrar com Google
                 </Btn>
+
+                {/* Advanced — Client ID config (collapsed by default) */}
+                <button
+                  onClick={() => setShowAdvanced(v => !v)}
+                  style={{ background: "none", border: "none", color: "#4b5563", fontSize: 12, cursor: "pointer", padding: "2px 0", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, alignSelf: "flex-start" }}>
+                  {showAdvanced ? "▾" : "▸"} Configuração avançada (Client ID)
+                </button>
+
+                {showAdvanced && (
+                  <div style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <p style={{ margin: 0, fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
+                      Normalmente não é necessário. Preencha apenas se aparecer um erro de "client_id inválido" ou se quiser usar seu próprio projeto Google Cloud.
+                    </p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        value={cidInput}
+                        onChange={e => setCidInput(e.target.value)}
+                        placeholder="…googleusercontent.com"
+                        style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 13, outline: "none", minWidth: 0 }}
+                        onFocus={e => e.target.style.border = "1px solid #c084fc"}
+                        onBlur={e => e.target.style.border = "1px solid #2d2d4a"}
+                      />
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.7 }}>
+                      Para obter um Client ID próprio:<br />
+                      1. <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: "#818cf8" }}>console.cloud.google.com</a> → Criar projeto<br />
+                      2. APIs → Biblioteca → ativar <b style={{ color: "#c084fc" }}>Google Drive API</b><br />
+                      3. Credenciais → Criar ID OAuth → Aplicativo Web<br />
+                      4. Origens JS → adicionar a URL do seu GitHub Pages<br />
+                      5. Copiar o ID e colar acima
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* CONNECTED — minimal UI, sync is automatic */}
-            {(drive.status === "ready" || drive.status === "syncing" || drive.status === "connecting") && (
+            {/* ── CONNECTED ── */}
+            {connected && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ background: "#22c55e11", border: "1px solid #22c55e33", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
-                  ✅ Sync automático ativado — seus dados são salvos no Google Drive a cada alteração.
+                  ✅ Sync automático — dados salvos no Drive a cada alteração.
                 </div>
-                <p style={{ margin: 0, fontSize: 12, color: "#4b5563", textAlign: "center" }}>
-                  Arquivo: <code style={{ color: "#818cf8" }}>BeautyControl/{DRIVE_FILE}</code>
+                <p style={{ margin: 0, fontSize: 11, color: "#4b5563", textAlign: "center" }}>
+                  📁 BeautyControl / {DRIVE_FILE}
                 </p>
-                <button
-                  onClick={drive.disconnect}
+                <button onClick={drive.disconnect}
                   style={{ background: "none", border: "none", color: "#4b5563", fontSize: 12, cursor: "pointer", padding: "4px 0", fontFamily: "inherit", textAlign: "center" }}>
                   Desconectar
                 </button>
@@ -1608,6 +1626,7 @@ function Backup({ db, commit, syncListenerRef }) {
     </div>
   );
 }
+
 
 // ─── INVENTÁRIO ───────────────────────────────────────────────────────────────
 // Fluxo: idle → contando (produto a produto) → revisão → confirmado
