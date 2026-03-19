@@ -3,49 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-
-  <!-- PWA & theme -->
   <meta name="theme-color" content="#a855f7" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="BeautyControl" />
   <meta name="description" content="Gestão de cosméticos: vendas, estoque, clientes e empenhos" />
-
-  <!-- Camera permission hint (Chrome Android) -->
   <meta http-equiv="Permissions-Policy" content="camera=*" />
-
-  <title>BeautyControl 💅</title>
+  <title>BeautyControl</title>
   <link rel="manifest" href="manifest.json" />
-
-  <!-- Icons (SVG inline as data URI — no extra files needed) -->
-  <link rel="icon" sizes="any" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='90' fill='%23a855f7'/><text y='.82em' font-size='340' x='86'>&#x1F485;</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='90' fill='%23a855f7'/><text y='.82em' font-size='340' x='86'>&#x1F485;</text></svg>" />
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='90' fill='%23a855f7'/><text y='.82em' font-size='340' x='86'>&#x1F485;</text></svg>" />
 
-  <!-- React 18 + ReactDOM (UMD — no ES modules, works with Babel standalone) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-  <!-- Babel standalone — transforms JSX in browser -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body {
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
-      overflow: hidden;
-      background: #07071a;
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #07071a;
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
       overscroll-behavior: none;
       touch-action: pan-y;
     }
     #root { width: 100%; height: 100%; height: 100dvh; }
-
-    /* html5-qrcode injects its own styles — override to fill container */
-    #root video           { max-width: 100% !important; object-fit: cover !important; }
-    #qr-shaded-region     { border-width: 0 !important; }
-
+    #root video { max-width: 100% !important; object-fit: cover !important; }
+    #qr-shaded-region { border-width: 0 !important; }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #2d2d4a; border-radius: 3px; }
@@ -53,8 +39,6 @@
     select option { background: #1a1a2e; }
     input[type=number]::-webkit-inner-spin-button { opacity: 0.5; }
     input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
-
-    /* ── Splash ── */
     #splash {
       position: fixed; inset: 0; z-index: 9999; background: #07071a;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -70,42 +54,25 @@
     #splash-bar  { margin-top: 28px; width: 120px; height: 3px; background: #1e1e38; border-radius: 99px; overflow: hidden; }
     #splash-fill { height: 100%; width: 0; background: linear-gradient(90deg,#a855f7,#818cf8);
                    border-radius: 99px; animation: loadBar 1.4s ease forwards; }
-    @keyframes loadBar { from { width: 0 } to { width: 100% } }
-
-    /* ── Scanner line animation ── */
+    @keyframes loadBar { from{width:0} to{width:100%} }
     @keyframes scanline {
-      0%,100% { transform: translateY(-12px); opacity: 0.3; }
-      50%      { transform: translateY(12px);  opacity: 1;   }
-    }
-
-    /* ── Permission prompt (shown before camera opens) ── */
-    #cam-prompt {
-      position: fixed; inset: 0; z-index: 3000; background: #07071acc;
-      display: flex; align-items: flex-end; justify-content: center; padding: 16px;
-    }
-    #cam-prompt-box {
-      background: #1e1e38; border: 1px solid #a855f7; border-radius: 20px;
-      padding: 24px 20px; width: 100%; max-width: 480px;
-      font-family: sans-serif; text-align: center;
+      0%,100%{transform:translateY(-12px);opacity:.3}
+      50%{transform:translateY(12px);opacity:1}
     }
   </style>
 </head>
 <body>
-
 <div id="splash">
   <em>&#x1F485;</em>
   <h1>BeautyControl</h1>
   <p>Carregando&hellip;</p>
   <div id="splash-bar"><div id="splash-fill"></div></div>
 </div>
-
 <div id="root"></div>
 
-<!-- ── App (Babel transforms JSX in-browser) ── -->
 <script type="text/babel">
 /* global React, ReactDOM */
-const { useState, useCallback, useEffect, useRef } = React;
-
+// ONE single destructure — JSX body must NOT repeat this
 const { useState, useCallback, useEffect, useRef } = React;
 
 
@@ -1794,97 +1761,41 @@ function App() {
 }
 
 // ── Mount ──
-const _root = ReactDOM.createRoot(document.getElementById('root'));
-_root.render(React.createElement(App));
-
-// ── Hide splash ──
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+// ── Splash ──
 setTimeout(() => {
   const s = document.getElementById('splash');
-  if (s) { s.classList.add('fade'); setTimeout(() => { try { s.remove(); } catch(e){} }, 500); }
+  if (s) { s.classList.add('fade'); setTimeout(() => { try{s.remove()}catch(e){} }, 500); }
 }, 1200);
 </script>
 
-<!-- ── PWA bootstrap ── -->
 <script>
-(function () {
-  'use strict';
-
-  // ── Register real service worker file ──
+(function(){
+  // ── Service Worker ──
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // Fallback: try relative path (works for GitHub Pages subpath)
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
-      });
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('./sw.js').catch(function(){});
     });
   }
 
   // ── PWA install banner ──
-  let deferred = null;
-  const standalone = () =>
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.navigator.standalone === true;
-
-  window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
-    deferred = e;
+  var deferred = null;
+  var standalone = function(){ return window.matchMedia('(display-mode:standalone)').matches || navigator.standalone===true; };
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault(); deferred = e;
     if (standalone()) return;
-
-    // Show install card after 2 seconds
-    setTimeout(() => {
+    setTimeout(function(){
       if (!deferred) return;
-      const card = document.createElement('div');
-      card.id = 'pwa-card';
-      card.style.cssText = 'position:fixed;bottom:66px;left:10px;right:10px;z-index:500;animation:slideUp .3s ease';
-      card.innerHTML = `
-        <div style="background:#1e1e38;border:1px solid #a855f7;border-radius:16px;padding:14px 16px;
-                    display:flex;align-items:center;gap:12px;box-shadow:0 8px 40px #000c;font-family:sans-serif">
-          <span style="font-size:28px;flex-shrink:0">&#x1F485;</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:800;color:#e2e8f0;font-size:14px">Instalar BeautyControl</div>
-            <div style="font-size:12px;color:#9ca3af;margin-top:3px">Use offline &bull; Tela cheia &bull; Acesso à câmera</div>
-          </div>
-          <button id="pwa-yes" style="background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;
-            border-radius:9px;color:#fff;padding:9px 14px;font-weight:700;font-size:13px;
-            cursor:pointer;white-space:nowrap;font-family:inherit">Instalar</button>
-          <button id="pwa-no" style="background:none;border:none;color:#6b7280;
-            cursor:pointer;font-size:22px;padding:0 4px;line-height:1;flex-shrink:0">&times;</button>
-        </div>
-        <style>@keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}</style>
-      `;
+      var card = document.createElement('div');
+      card.style.cssText = 'position:fixed;bottom:66px;left:10px;right:10px;z-index:500';
+      card.innerHTML = '<div style="background:#1e1e38;border:1px solid #a855f7;border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 40px #000c;font-family:sans-serif"><span style="font-size:28px;flex-shrink:0">&#x1F485;</span><div style="flex:1;min-width:0"><div style="font-weight:800;color:#e2e8f0;font-size:14px">Instalar BeautyControl</div><div style="font-size:12px;color:#9ca3af;margin-top:3px">Use offline • Tela cheia • Câmera</div></div><button id="pi" style="background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:9px;color:#fff;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap">Instalar</button><button id="pd" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:24px;padding:0 4px;line-height:1">×</button></div>';
       document.body.appendChild(card);
-
-      document.getElementById('pwa-yes').addEventListener('click', async () => {
-        if (!deferred) return;
-        deferred.prompt();
-        const { outcome } = await deferred.userChoice;
-        deferred = null;
-        card.remove();
-        // After install, camera permission will work on next launch
-        if (outcome === 'accepted') {
-          setTimeout(() => {
-            const notice = document.createElement('div');
-            notice.style.cssText = 'position:fixed;top:16px;left:16px;right:16px;z-index:900;background:#22c55e22;border:1px solid #22c55e66;border-radius:12px;padding:12px 16px;font-family:sans-serif;font-size:13px;color:#22c55e;text-align:center';
-            notice.textContent = '✅ App instalado! Abra pela tela inicial para câmera e uso offline.';
-            document.body.appendChild(notice);
-            setTimeout(() => notice.remove(), 5000);
-          }, 1000);
-        }
-      });
-      document.getElementById('pwa-no').addEventListener('click', () => {
-        card.remove(); deferred = null;
-      });
+      document.getElementById('pi').onclick = function(){ if(!deferred)return; deferred.prompt(); deferred.userChoice.then(function(){ deferred=null; card.remove(); }); };
+      document.getElementById('pd').onclick = function(){ card.remove(); deferred=null; };
     }, 2000);
   });
-
-  window.addEventListener('appinstalled', () => { deferred = null; });
-
-  // ── HTTPS redirect (safety net) ──
-  if (location.protocol === 'http:' && location.hostname !== 'localhost' && !location.hostname.startsWith('192.168') && !location.hostname.startsWith('127.')) {
-    location.replace(location.href.replace('http:', 'https:'));
-  }
+  window.addEventListener('appinstalled', function(){ deferred=null; });
 })();
 </script>
-
 </body>
 </html>

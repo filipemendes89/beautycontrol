@@ -1,10 +1,12 @@
-const CACHE = 'bc-v5';
+const CACHE = 'bc-v6';
 const PRECACHE = ['/', '/index.html', '/manifest.json', '/sw.js'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE).catch(() => {}))
+    caches.open(CACHE).then(c =>
+      Promise.all(PRECACHE.map(url => c.add(url).catch(() => {})))
+    )
   );
 });
 
@@ -18,17 +20,17 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Camera/media requests — never cache, always go to network
-  if (e.request.url.includes('getUserMedia') || e.request.url.startsWith('blob:')) return;
   e.respondWith(
     caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
-        if (res && res.status === 200 && res.type !== 'opaque') {
-          caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+      const networkFetch = fetch(e.request.clone()).then(response => {
+        // Only cache valid, non-opaque responses
+        if (response && response.status === 200 && response.type === 'basic') {
+          const toCache = response.clone();
+          caches.open(CACHE).then(c => c.put(e.request, toCache));
         }
-        return res;
+        return response;
       }).catch(() => cached);
-      return cached || network;
+      return cached || networkFetch;
     })
   );
 });
