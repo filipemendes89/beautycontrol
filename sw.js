@@ -1,5 +1,9 @@
-const CACHE = 'bc-v6';
-const PRECACHE = ['/', '/index.html', '/manifest.json', '/sw.js'];
+const CACHE = 'bc-v7';
+const PRECACHE = ['./index.html', './manifest.json', './sw.js'];
+
+// Only cache http/https requests — never chrome-extension:// or blob: etc.
+const isCacheable = req =>
+  req.url.startsWith('http://') || req.url.startsWith('https://');
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -20,13 +24,14 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  if (!isCacheable(e.request)) return; // skip chrome-extension://, blob:, etc.
+
   e.respondWith(
     caches.match(e.request).then(cached => {
       const networkFetch = fetch(e.request.clone()).then(response => {
-        // Only cache valid, non-opaque responses
         if (response && response.status === 200 && response.type === 'basic') {
           const toCache = response.clone();
-          caches.open(CACHE).then(c => c.put(e.request, toCache));
+          caches.open(CACHE).then(c => c.put(e.request, toCache).catch(() => {}));
         }
         return response;
       }).catch(() => cached);

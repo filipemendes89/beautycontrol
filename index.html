@@ -183,8 +183,7 @@ function BarcodeScannerModal({ onDetected, onClose, title = "Escanear Código" }
       } catch (e) {
         const msg = String(e?.message || e);
         if (/Permission|NotAllowed/i.test(msg)) {
-          setErrMsg("Permissão de câmera negada.
-Vá em Configurações → Apps → Chrome → Permissões → Câmera → Permitir.");
+          setErrMsg("Permissão de câmera negada. Vá em Configurações → Apps → Chrome → Permissões → Câmera → Permitir.");
         } else if (/NotFound|Devices|not found/i.test(msg)) {
           setErrMsg("Nenhuma câmera encontrada neste dispositivo.");
         } else {
