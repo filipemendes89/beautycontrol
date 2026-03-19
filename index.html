@@ -1284,10 +1284,11 @@ const DRIVE_SCOPE    = "https://www.googleapis.com/auth/drive.file";
 const GIS_URL        = "https://accounts.google.com/gsi/client";
 const GAPI_URL       = "https://apis.google.com/js/api.js";
 const PUSH_DEBOUNCE  = 300; // ms — coalesce rapid commits into one upload
+const DEFAULT_CLIENT_ID = "103314575722-in1v52l5779k6qfabmlf97pmos1jbfm8.apps.googleusercontent.com";
 
 // ── useDriveSync ─────────────────────────────────────────────────────────────
 function useDriveSync(syncListenerRef) {
-  const [clientId, setClientId]   = useState(() => localStorage.getItem("bc_gclient") || "");
+  const [clientId, setClientId]   = useState(() => localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID);
   const [status, setStatus]       = useState("disconnected"); // disconnected|connecting|ready|syncing|error
   const [statusMsg, setStatusMsg] = useState("");
   const [lastSync, setLastSync]   = useState(() => localStorage.getItem("bc_lastsync") || null);
@@ -1475,7 +1476,7 @@ function useDriveSync(syncListenerRef) {
 
   // ── Connect — open Google OAuth popup ────────────────────────────────────
   const connect = useCallback(async (cid) => {
-    const id = (cid || clientId || localStorage.getItem("bc_gclient") || "").trim();
+    const id = (cid || clientId || localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID).trim();
     if (!id) {
       setStatus("error");
       setStatusMsg("É necessário um Client ID para conectar ao Google Drive. Expanda a seção Configuração Avançada abaixo.");
@@ -1510,7 +1511,7 @@ function useDriveSync(syncListenerRef) {
 
   // ── Auto-reconnect silently on mount if we have a stored client ID ────────
   useEffect(() => {
-    const cid = localStorage.getItem("bc_gclient");
+    const cid = localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID;
     if (!cid) return;
     setClientId(cid);
     // Load scripts and re-init client; token will be requested silently on next push
@@ -1537,12 +1538,10 @@ function Backup({ db, commit, syncListenerRef }) {
   const [previewData, setPreviewData]   = useState(null);
   const [dragOver, setDragOver]         = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [cidInput, setCidInput]         = useState("");
 
   const drive = useDriveSync(syncListenerRef);
 
   // Pre-fill input from stored value (set after first connect)
-  useEffect(() => { if (drive.clientId) setCidInput(drive.clientId); }, [drive.clientId]);
 
   // ── Local export ──────────────────────────────────────────────────────────
   const doExport = () => {
@@ -1626,42 +1625,11 @@ function Backup({ db, commit, syncListenerRef }) {
                 )}
 
                 {/* Primary action — no Client ID required upfront */}
-                <Btn full onClick={() => drive.connect(cidInput)} style={{ fontSize: 15, padding: "12px 18px" }}>
+                <Btn full onClick={() => drive.connect("")} style={{ fontSize: 15, padding: "12px 18px" }}>
                   <span style={{ fontSize: 18 }}>G</span> Entrar com Google
                 </Btn>
 
-                {/* Advanced — Client ID config (collapsed by default) */}
-                <button
-                  onClick={() => setShowAdvanced(v => !v)}
-                  style={{ background: "none", border: "none", color: "#4b5563", fontSize: 12, cursor: "pointer", padding: "2px 0", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, alignSelf: "flex-start" }}>
-                  {showAdvanced ? "▾" : "▸"} Configuração avançada (Client ID)
-                </button>
 
-                {showAdvanced && (
-                  <div style={{ background: "#0a0a1a", border: "1px solid #1e1e38", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                    <p style={{ margin: 0, fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>
-                      Normalmente não é necessário. Preencha apenas se aparecer um erro de "client_id inválido" ou se quiser usar seu próprio projeto Google Cloud.
-                    </p>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        value={cidInput}
-                        onChange={e => setCidInput(e.target.value)}
-                        placeholder="…googleusercontent.com"
-                        style={{ flex: 1, background: "#1a1a2e", border: "1px solid #2d2d4a", borderRadius: 8, padding: "9px 12px", color: "#e2e8f0", fontSize: 13, outline: "none", minWidth: 0 }}
-                        onFocus={e => e.target.style.border = "1px solid #c084fc"}
-                        onBlur={e => e.target.style.border = "1px solid #2d2d4a"}
-                      />
-                    </div>
-                    <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.7 }}>
-                      Para obter um Client ID próprio:<br />
-                      1. <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: "#818cf8" }}>console.cloud.google.com</a> → Criar projeto<br />
-                      2. APIs → Biblioteca → ativar <b style={{ color: "#c084fc" }}>Google Drive API</b><br />
-                      3. Credenciais → Criar ID OAuth → Aplicativo Web<br />
-                      4. Origens JS → adicionar a URL do seu GitHub Pages<br />
-                      5. Copiar o ID e colar acima
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
