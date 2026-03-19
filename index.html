@@ -1287,22 +1287,22 @@ const PUSH_DEBOUNCE  = 300; // ms — coalesce rapid commits into one upload
 const DEFAULT_CLIENT_ID = "103314575722-in1v52l5779k6qfabmlf97pmos1jbfm8.apps.googleusercontent.com";
 
 // ── useDriveSync ─────────────────────────────────────────────────────────────
+// Lives in App (root) so it never unmounts — listener stays active always
 function useDriveSync(syncListenerRef) {
-  const [clientId, setClientId]   = useState(() => localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID);
-  const [status, setStatus]       = useState("disconnected"); // disconnected|connecting|ready|syncing|error
+  const [status, setStatus]       = useState("disconnected");
   const [statusMsg, setStatusMsg] = useState("");
   const [lastSync, setLastSync]   = useState(() => localStorage.getItem("bc_lastsync") || null);
 
-  const tokenRef    = useRef(null);  // { value, expiresAt }
-  const clientRef   = useRef(null);  // GIS TokenClient
-  const fileIdRef   = useRef(null);  // cached Drive file ID
-  const folderIdRef = useRef(null);  // cached Drive folder ID
-  const tokenWait   = useRef(null);  // { resolve, reject } for pending getToken
-  const debounceRef = useRef(null);  // setTimeout handle for push debounce
-  const pushRunning = useRef(false); // prevent concurrent pushes
-  const readyRef    = useRef(false); // true once successfully connected
+  const tokenRef    = useRef(null);   // { value, expiresAt }
+  const clientRef   = useRef(null);   // GIS TokenClient
+  const fileIdRef   = useRef(null);   // cached Drive file ID
+  const folderIdRef = useRef(null);   // cached Drive folder ID
+  const debounceRef = useRef(null);   // setTimeout for debounce
+  const pushQueue   = useRef(null);   // snapshot waiting to be pushed after token arrives
+  const pushRunning = useRef(false);  // prevent concurrent pushes
+  const readyRef    = useRef(false);  // true once token obtained
 
-  // ── Lazy-load GIS + GAPI ──────────────────────────────────────────────────
+  // ── Load GIS + GAPI scripts once ─────────────────────────────────────────
   const loadScripts = useCallback(async () => {
     if (!window.google?.accounts?.oauth2) {
       await new Promise((ok, fail) => {
@@ -1324,222 +1324,189 @@ function useDriveSync(syncListenerRef) {
     }
   }, []);
 
-  // ── Get token (reuse if valid, silently refresh otherwise) ────────────────
+  // ── Fetch Drive token (reuse cached, or wait for callback) ───────────────
   const getToken = useCallback(() => new Promise((resolve, reject) => {
     const t = tokenRef.current;
-    if (t && Date.now() < t.expiresAt - 30_000) return resolve(t.value);
-    if (!clientRef.current) return reject(new Error("Drive não conectado"));
-    tokenWait.current = { resolve, reject };
-    clientRef.current.requestAccessToken({ prompt: "" }); // silent refresh
+    if (t && Date.now() < t.expiresAt - 60_000) return resolve(t.value);
+    if (!clientRef.current) return reject(new Error("Cliente GIS não inicializado"));
+    // Will be resolved inside the GIS callback
+    clientRef.current._pendingToken = { resolve, reject };
+    clientRef.current.requestAccessToken({ prompt: "" });
   }), []);
 
-  // ── Init GIS token client ─────────────────────────────────────────────────
-  const initTokenClient = useCallback((cid) => {
-    clientRef.current = window.google.accounts.oauth2.initTokenClient({
-      client_id: cid,
-      scope: DRIVE_SCOPE,
-      callback: (resp) => {
-        if (resp.error) {
-          const err = new Error("Auth error: " + resp.error);
-          setStatus("error"); setStatusMsg("Autenticação falhou: " + resp.error);
-          if (tokenWait.current) { tokenWait.current.reject(err); tokenWait.current = null; }
-          return;
-        }
-        tokenRef.current = { value: resp.access_token, expiresAt: Date.now() + resp.expires_in * 1000 };
-        window.gapi.client.setToken({ access_token: resp.access_token });
-        if (tokenWait.current) { tokenWait.current.resolve(resp.access_token); tokenWait.current = null; }
-        // First successful token = connected
-        if (!readyRef.current) { readyRef.current = true; setStatus("ready"); setStatusMsg(""); }
-      },
-    });
-  }, []);
-
-  // ── Drive REST helpers ────────────────────────────────────────────────────
-  const driveReq = useCallback(async (method, path, { params, body, upload, rawBody } = {}) => {
-    const token  = await getToken();
-    const base   = upload
-      ? "https://www.googleapis.com/upload/drive/v3/"
-      : "https://www.googleapis.com/drive/v3/";
-    const qs     = params ? "?" + new URLSearchParams(params) : "";
-    const headers = { Authorization: "Bearer " + token };
-    if (body && !rawBody) headers["Content-Type"] = "application/json";
-    const res = await fetch(base + path + qs, {
-      method,
-      headers,
-      body: rawBody ? rawBody : body ? JSON.stringify(body) : undefined,
-    });
+  // ── Core Drive fetch helper ───────────────────────────────────────────────
+  const driveReq = useCallback(async (method, url, opts = {}) => {
+    const token = await getToken();
+    const headers = { Authorization: "Bearer " + token, ...opts.headers };
+    const res = await fetch(url, { method, headers, body: opts.body });
     if (!res.ok) {
-      const txt = await res.text().catch(() => res.status);
-      throw new Error(`Drive ${method} ${path} → ${res.status}: ${txt}`);
+      const txt = await res.text().catch(() => String(res.status));
+      throw new Error(`Drive ${method} ${url.slice(39, 70)} → ${res.status}: ${txt.slice(0, 120)}`);
     }
-    return res.status === 204 ? null : res.json();
+    return res.status === 204 ? {} : res.json();
   }, [getToken]);
 
-  // Find-or-create the BeautyControl folder
+  // ── Find-or-create folder ────────────────────────────────────────────────
   const getFolder = useCallback(async () => {
     if (folderIdRef.current) return folderIdRef.current;
-    const res = await driveReq("GET", "files", {
-      params: { q: `name='${DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`, fields: "files(id)" }
-    });
-    if (res.files.length) { folderIdRef.current = res.files[0].id; return folderIdRef.current; }
-    const f = await driveReq("POST", "files", { body: { name: DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder" } });
+    const q = encodeURIComponent(`name='${DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const r = await driveReq("GET", `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`);
+    if (r.files?.length) { folderIdRef.current = r.files[0].id; return folderIdRef.current; }
+    const f = await driveReq("POST", "https://www.googleapis.com/drive/v3/files",
+      { headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder" }) });
     folderIdRef.current = f.id;
     return f.id;
   }, [driveReq]);
 
-  // Find the backup file
+  // ── Find backup file ──────────────────────────────────────────────────────
   const getFileId = useCallback(async (folderId) => {
     if (fileIdRef.current) return fileIdRef.current;
-    const res = await driveReq("GET", "files", {
-      params: { q: `name='${DRIVE_FILE}' and '${folderId}' in parents and trashed=false`, fields: "files(id)" }
-    });
-    fileIdRef.current = res.files[0]?.id || null;
+    const q = encodeURIComponent(`name='${DRIVE_FILE}' and '${folderId}' in parents and trashed=false`);
+    const r = await driveReq("GET", `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`);
+    fileIdRef.current = r.files?.[0]?.id || null;
     return fileIdRef.current;
   }, [driveReq]);
 
-  // ── PUSH — write local → Drive (local always wins) ───────────────────────
-  const push = useCallback(async (dbSnapshot) => {
-    if (!readyRef.current) return; // not connected
-    if (pushRunning.current) return; // already running
+  // ── PUSH — upload dbSnapshot to Drive ────────────────────────────────────
+  const push = useCallback(async (snapshot) => {
+    if (!readyRef.current) { pushQueue.current = snapshot; return; }
+    if (pushRunning.current) { pushQueue.current = snapshot; return; }
     pushRunning.current = true;
     setStatus("syncing");
-
     try {
-      const payload = JSON.stringify({
-        _meta: { app: "BeautyControl", syncedAt: new Date().toISOString() },
-        ...dbSnapshot,
-      });
-
+      const payload = JSON.stringify({ _meta: { app: "BeautyControl", syncedAt: new Date().toISOString() }, ...snapshot });
       const folderId = await getFolder();
       const fileId   = await getFileId(folderId);
+      const token    = await getToken();
 
       if (fileId) {
-        // Update existing file content
-        const token = await getToken();
+        // Update existing file
         await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
           method: "PATCH",
           headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
           body: payload,
-        });
+        }).then(r => { if (!r.ok) throw new Error("PATCH failed: " + r.status); });
       } else {
-        // Create new file (multipart)
-        const token  = await getToken();
-        const meta   = JSON.stringify({ name: DRIVE_FILE, parents: [folderId] });
-        const boundary = "bc_boundary_" + Date.now();
-        const body = [
-          `--${boundary}`,
-          "Content-Type: application/json; charset=UTF-8",
-          "",
-          meta,
-          `--${boundary}`,
-          "Content-Type: application/json",
-          "",
-          payload,
-          `--${boundary}--`,
-        ].join("\r\n");
-
-        const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+        // Create new file using FormData (no manual CRLF needed)
+        const meta = JSON.stringify({ name: DRIVE_FILE, parents: [folderId] });
+        const form = new FormData();
+        form.append("metadata", new Blob([meta],    { type: "application/json" }));
+        form.append("file",     new Blob([payload], { type: "application/json" }));
+        const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
           method: "POST",
-          headers: { Authorization: "Bearer " + token, "Content-Type": `multipart/related; boundary=${boundary}` },
-          body,
+          headers: { Authorization: "Bearer " + token },
+          body: form,
         });
-        const f = await res.json();
+        if (!r.ok) throw new Error("Criacao falhou: " + r.status + " " + await r.text().catch(() => ""));
+        const f = await r.json();
         fileIdRef.current = f.id;
       }
 
       const ts = new Date().toISOString();
-      setLastSync(ts);
-      localStorage.setItem("bc_lastsync", ts);
-      setStatus("ready");
-      setStatusMsg("");
+      setLastSync(ts); localStorage.setItem("bc_lastsync", ts);
+      setStatus("ready"); setStatusMsg("");
+
+      // Flush any snapshot that arrived while we were busy
+      if (pushQueue.current) {
+        const queued = pushQueue.current; pushQueue.current = null;
+        setTimeout(() => push(queued), 500);
+      }
     } catch (e) {
-      setStatus("error");
-      setStatusMsg(e.message || String(e));
-      // Auto-retry after 10 s
-      setTimeout(() => { if (readyRef.current) setStatus("ready"); }, 10_000);
+      setStatus("error"); setStatusMsg(e.message || String(e));
+      setTimeout(() => { if (readyRef.current) setStatus("ready"); }, 15_000);
     } finally {
       pushRunning.current = false;
     }
   }, [getFolder, getFileId, getToken]);
 
-  // ── Debounced push — called on every commit() ─────────────────────────────
-  const schedulePush = useCallback((dbSnapshot) => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => push(dbSnapshot), PUSH_DEBOUNCE);
+  // ── Register listener — lives forever since hook is in App ───────────────
+  useEffect(() => {
+    syncListenerRef.current = (snapshot) => {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => push(snapshot), PUSH_DEBOUNCE);
+    };
+    // Do NOT cleanup — we want the listener to persist as long as App exists
   }, [push]);
 
-  // ── Register listener so commit() triggers auto-push ─────────────────────
-  useEffect(() => {
-    syncListenerRef.current = schedulePush;
-    return () => { syncListenerRef.current = null; };
-  }, [schedulePush]);
+  // ── Init GIS client and wire up token callback ────────────────────────────
+  const initClient = useCallback((cid) => {
+    if (!window.google?.accounts?.oauth2) return;
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: DRIVE_SCOPE,
+      callback: (resp) => {
+        if (resp.error) {
+          setStatus("error"); setStatusMsg("Erro de autenticação: " + resp.error);
+          if (client._pendingToken) { client._pendingToken.reject(new Error(resp.error)); client._pendingToken = null; }
+          return;
+        }
+        tokenRef.current = { value: resp.access_token, expiresAt: Date.now() + resp.expires_in * 1000 };
+        if (window.gapi?.client) window.gapi.client.setToken({ access_token: resp.access_token });
+        if (client._pendingToken) { client._pendingToken.resolve(resp.access_token); client._pendingToken = null; }
+        if (!readyRef.current) {
+          readyRef.current = true;
+          setStatus("ready"); setStatusMsg("");
+          // Push any snapshot that was queued before token was ready
+          if (pushQueue.current) { const q = pushQueue.current; pushQueue.current = null; setTimeout(() => push(q), 200); }
+        }
+      },
+    });
+    clientRef.current = client;
+  }, [push]);
 
-  // ── Connect — open Google OAuth popup ────────────────────────────────────
-  const connect = useCallback(async (cid) => {
-    const id = (cid || clientId || localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID).trim();
-    if (!id) {
-      setStatus("error");
-      setStatusMsg("É necessário um Client ID para conectar ao Google Drive. Expanda a seção Configuração Avançada abaixo.");
-      return;
-    }
-    setStatus("connecting"); setStatusMsg("Carregando Google…");
+  // ── Connect (called by user pressing "Entrar com Google") ─────────────────
+  const connect = useCallback(async () => {
+    setStatus("connecting"); setStatusMsg("Carregando bibliotecas Google…");
     try {
       await loadScripts();
-      initTokenClient(id);
-      localStorage.setItem("bc_gclient", id);
-      setClientId(id);
+      initClient(DEFAULT_CLIENT_ID);
+      localStorage.setItem("bc_gclient", DEFAULT_CLIENT_ID);
       setStatusMsg("Aguardando login…");
-      // Opens the Google account chooser popup
-      clientRef.current.requestAccessToken({ prompt: "consent" });
+      clientRef.current.requestAccessToken({ prompt: "select_account" });
     } catch (e) {
       setStatus("error"); setStatusMsg(e.message || String(e));
     }
-  }, [clientId, loadScripts, initTokenClient]);
+  }, [loadScripts, initClient]);
 
   // ── Disconnect ────────────────────────────────────────────────────────────
   const disconnect = useCallback(() => {
     clearTimeout(debounceRef.current);
-    if (tokenRef.current?.value && window.google?.accounts?.oauth2) {
-      window.google.accounts.oauth2.revoke(tokenRef.current.value, () => {});
+    if (tokenRef.current?.value) {
+      try { window.google?.accounts?.oauth2?.revoke(tokenRef.current.value, () => {}); } catch (_) {}
     }
     tokenRef.current = null; fileIdRef.current = null; folderIdRef.current = null;
-    clientRef.current = null; readyRef.current = false;
-    syncListenerRef.current = null;
+    clientRef.current = null; readyRef.current = false; pushQueue.current = null;
     setStatus("disconnected"); setStatusMsg(""); setLastSync(null);
-    localStorage.removeItem("bc_lastsync");
+    localStorage.removeItem("bc_lastsync"); localStorage.removeItem("bc_gclient");
   }, []);
 
-  // ── Auto-reconnect silently on mount if we have a stored client ID ────────
+  // ── Auto-reconnect: silently try to get a token on app load ──────────────
   useEffect(() => {
-    const cid = localStorage.getItem("bc_gclient") || DEFAULT_CLIENT_ID;
-    if (!cid) return;
-    setClientId(cid);
-    // Load scripts and re-init client; token will be requested silently on next push
+    const stored = localStorage.getItem("bc_gclient");
+    if (!stored) return; // never connected before — don't bother
     loadScripts().then(() => {
-      initTokenClient(cid);
-      // Request a token silently (no prompt) to restore session
-      if (clientRef.current) {
-        tokenWait.current = {
-          resolve: (tok) => { readyRef.current = true; setStatus("ready"); setStatusMsg(""); },
-          reject:  () => { setStatus("disconnected"); },
-        };
-        clientRef.current.requestAccessToken({ prompt: "" });
-      }
-    }).catch(() => setStatus("disconnected"));
+      initClient(stored);
+      // Try silent token (works if session still active in browser)
+      clientRef.current._pendingToken = {
+        resolve: () => {},
+        reject: () => setStatus("disconnected"),
+      };
+      clientRef.current.requestAccessToken({ prompt: "" });
+    }).catch(() => {});
   }, []);
 
-  return { clientId, status, statusMsg, lastSync, connect, disconnect };
+  return { status, statusMsg, lastSync, connect, disconnect };
 }
 
 // ─── BACKUP PAGE ──────────────────────────────────────────────────────────────
-function Backup({ db, commit, syncListenerRef }) {
+function Backup({ db, commit, drive }) {
   const [restoreState, setRestoreState] = useState("idle");
   const [restoreMsg, setRestoreMsg]     = useState("");
   const [previewData, setPreviewData]   = useState(null);
   const [dragOver, setDragOver]         = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const drive = useDriveSync(syncListenerRef);
 
   // Pre-fill input from stored value (set after first connect)
 
@@ -1625,7 +1592,7 @@ function Backup({ db, commit, syncListenerRef }) {
                 )}
 
                 {/* Primary action — no Client ID required upfront */}
-                <Btn full onClick={() => drive.connect("")} style={{ fontSize: 15, padding: "12px 18px" }}>
+                <Btn full onClick={() => drive.connect()} style={{ fontSize: 15, padding: "12px 18px" }}>
                   <span style={{ fontSize: 18 }}>G</span> Entrar com Google
                 </Btn>
 
@@ -2178,6 +2145,8 @@ function App() {
   const [page, setPage] = useState("dashboard");
   const { db, commit, syncListenerRef } = useDB();
   const mobile = useIsMobile();
+  // Drive sync lives at App level so it persists across page navigation
+  const drive = useDriveSync(syncListenerRef);
   const PAGE = { dashboard: Dashboard, produtos: Produtos, clientes: Clientes, vendas: Vendas, empenhos: Empenhos, estoque: Estoque, inventario: Inventario, backup: Backup };
   const PageComp = PAGE[page];
 
@@ -2233,7 +2202,7 @@ function App() {
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#6b7280", fontWeight: 700 }}>{NAV.find(n => n.id === page)?.label}</span>
           </div>
         )}
-        <PageComp db={db} commit={commit} syncListenerRef={syncListenerRef} />
+        <PageComp db={db} commit={commit} drive={drive} />
       </main>
 
       {/* ── Mobile bottom nav ── */}
